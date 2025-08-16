@@ -93,3 +93,41 @@ describe('Match-3 Logic', () => {
     expect(initialMatches.length).toBe(0);
   });
 });
+
+describe('createsMatchAt', () => {
+  it('should detect horizontal match [X, new, X]', () => {
+    const board = toBoard([[0, 1, 0]]);
+    expect(createsMatchAt(board, 0, 1, 0)).toBe(true);
+  });
+
+  it('should detect vertical match [X, new, X]', () => {
+    const board = toBoard([[0], [1], [0]]);
+    expect(createsMatchAt(board, 1, 0, 0)).toBe(true);
+  });
+
+  it('should detect horizontal match [X, X, new]', () => {
+    const board = toBoard([[0, 0, 1]]);
+    expect(createsMatchAt(board, 0, 2, 0)).toBe(true);
+  });
+
+  it('should detect vertical match [X, X, new]', () => {
+    const board = toBoard([[0], [0], [1]]);
+    expect(createsMatchAt(board, 2, 0, 0)).toBe(true);
+  });
+
+  it('should not create false positives', () => {
+    const board = toBoard([
+      [1, 2, 3],
+      [4, 5, 6],
+      [7, 8, 1]
+    ]);
+    expect(createsMatchAt(board, 1, 1, 0)).toBe(false);
+  });
+
+  it('should not create false positives at edges', () => {
+    const board = toBoard([
+      [0, 1, 2],
+    ]);
+    expect(createsMatchAt(board, 0, 0, 1)).toBe(false);
+  });
+});
