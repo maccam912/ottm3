@@ -1,0 +1,19 @@
+import Phaser from 'phaser';
+import { GameScene } from './GameScene';
+import { W, H, CONFIG } from './config';
+
+const game = new Phaser.Game({
+  type: Phaser.AUTO,
+  width: W,
+  height: H,
+  parent: 'game',
+  backgroundColor: 'transparent',
+  physics: {
+    default: 'matter',
+    matter: {
+      gravity: { y: CONFIG.GRAVITY_Y },
+      enableSleeping: true,
+    }
+  },
+  scene: [GameScene]
+});
