@@ -29,3 +29,6 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Report URL
+        run: echo "Game URL: ${{ steps.deployment.outputs.page_url }}" >> $GITHUB_STEP_SUMMARY
