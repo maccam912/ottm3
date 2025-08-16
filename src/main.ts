@@ -3,7 +3,7 @@ import { GameScene } from './GameScene';
 import { W, H, CONFIG } from './config';
 
 const game = new Phaser.Game({
-  type: Phaser.AUTO,
+  type: Phaser.CANVAS,
   width: W,
   height: H,
   parent: 'game',
