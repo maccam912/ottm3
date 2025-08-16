@@ -1,9 +1,11 @@
 /** @type {import('ts-jest').JestConfigWithTsJest} */
 module.exports = {
-  preset: 'ts-jest/presets/default-esm',
   testEnvironment: 'jsdom',
+  extensionsToTreatAsEsm: ['.ts'],
+  setupFilesAfterEnv: ['<rootDir>/tests/setup.js'],
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
+    'phaser3spectorjs': '<rootDir>/tests/emptyMock.js',
   },
   transform: {
     '^.+\\.tsx?$': [
