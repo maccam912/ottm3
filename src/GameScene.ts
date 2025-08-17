@@ -507,6 +507,16 @@ function getAcceleratingDelay(chainCount: number): number {
   return delays[Math.max(0, index)];
 }
 
+function triggerSlowMotion(scene: Phaser.Scene) {
+  // Set physics to slow motion
+  scene.matter.world.engine.timing.timeScale = CONFIG.SLOW_MOTION_SCALE;
+  
+  // Return to normal speed after duration
+  scene.time.delayedCall(CONFIG.SLOW_MOTION_DURATION, () => {
+    scene.matter.world.engine.timing.timeScale = CONFIG.TIME_SCALE;
+  });
+}
+
 function resolveMatches(scene: Phaser.Scene, matches: Match[]) {
   state.combo++;
   state.chainReactionCount++;
@@ -533,6 +543,9 @@ function resolveMatches(scene: Phaser.Scene, matches: Match[]) {
     const { x: blastX, y: blastY } = cellToXY(c, r);
     applyExplosionForce(scene, blastX, blastY, CONFIG.EXPLOSION_RADIUS, CONFIG.EXPLOSION_FORCE);
   });
+
+  // Trigger slow motion effect right after explosions
+  triggerSlowMotion(scene);
 
   const add = Math.floor(tilesCleared * 10 * Math.max(1, state.combo * 0.6));
   state.score += add;
@@ -577,6 +590,9 @@ function resolveSpecialMatches(scene: Phaser.Scene, specials: SpecialMatch[]) {
       }
     });
   }
+  
+  // Trigger slow motion effect right after special explosions
+  triggerSlowMotion(scene);
   
   scene.time.delayedCall(200, () => {
     dropTiles(scene, () => {
@@ -652,6 +668,9 @@ function activateWildGem(scene: Phaser.Scene, wildPos: {r: number, c: number}, t
   gemsToDestroy.forEach(pos => {
     explodeTile(scene, pos.r, pos.c);
   });
+  
+  // Trigger slow motion effect right after wild gem explosions
+  triggerSlowMotion(scene);
   
   // Calculate score based on gems destroyed
   const gemsDestroyed = gemsToDestroy.length;
