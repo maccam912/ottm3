@@ -7,6 +7,10 @@ const game = new Phaser.Game({
   width: W,
   height: H,
   parent: 'game',
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH
+  },
   backgroundColor: 'transparent',
   physics: {
     default: 'matter',
