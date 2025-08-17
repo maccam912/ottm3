@@ -295,11 +295,11 @@ function explodeTile(scene: Phaser.Scene, r: number, c: number) {
   const { x, y } = cellToXY(c, r);
 
   if(state.particles) {
+    state.particles.setAngle({min: 0, max: 360});
+    state.particles.setSpeed({min: 80, max: 350});
+    state.particles.setLifespan({min: 250, max: 600});
+    state.particles.setParticleTint(COLORS[t.type as number]);
     state.particles.emitParticleAt(x, y, 14);
-    state.particles.setEmitterAngle({min: 0, max: 360});
-    state.particles.setEmitterSpeed({min: 80, max: 350});
-    state.particles.setEmitterLifespan({min: 250, max: 600});
-    state.particles.setEmitterTint(COLORS[t.type as number]);
   }
 
   spawnShards(scene, x, y, COLORS[t.type as number]);
