@@ -21,7 +21,7 @@ export interface GameState {
   shardsCount: number;
   testResults: [string, boolean][];
   scoreText?: Phaser.GameObjects.Text;
-  particles?: Phaser.GameObjects.Particles.ParticleEmitterManager;
+  particles?: Phaser.GameObjects.Particles.ParticleEmitter;
 }
 
 export const state: GameState = {

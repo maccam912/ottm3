@@ -30,7 +30,7 @@ export function findMatches(board: Tile[][], rows: number = CONFIG.ROWS, cols: n
   for (let r = 0; r < rows; r++) {
     let run = 1;
     for (let c = 1; c <= cols; c++) {
-      const same = c < cols && board[r][c] && board[r][c - 1] && board[r][c].type === board[r][c - 1].type;
+      const same = c < cols && board[r][c] && board[r][c - 1] && board[r][c].type !== null && board[r][c].type === board[r][c - 1].type;
       if (same) run++; else {
         if (run >= 3) matches.push({ dir: 'h', r, c: c - run, len: run });
         run = 1;
@@ -41,7 +41,7 @@ export function findMatches(board: Tile[][], rows: number = CONFIG.ROWS, cols: n
   for (let c = 0; c < cols; c++) {
     let run = 1;
     for (let r = 1; r <= rows; r++) {
-      const same = r < rows && board[r][c] && board[r - 1][c] && board[r][c].type === board[r - 1][c].type;
+      const same = r < rows && board[r][c] && board[r - 1][c] && board[r][c].type !== null && board[r][c].type === board[r - 1][c].type;
       if (same) run++; else {
         if (run >= 3) matches.push({ dir: 'v', c, r: r - run, len: run });
         run = 1;
