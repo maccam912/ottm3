@@ -226,6 +226,7 @@ function swapAttempt(scene: Phaser.Scene, a: {c: number, r: number}, b: {c: numb
     const matches = findMatches(state.board);
     if (matches.length > 0) {
       deselectTile(scene, aTile);
+      state.selected = null;
       resolveMatches(scene, matches);
     } else {
       tweenSwap(scene, aTile.sprite!, bTile.sprite!, () => {
