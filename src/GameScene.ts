@@ -295,10 +295,12 @@ function explodeTile(scene: Phaser.Scene, r: number, c: number) {
   const { x, y } = cellToXY(c, r);
 
   if(state.particles) {
-    state.particles.setAngle({min: 0, max: 360});
-    state.particles.setSpeed({min: 80, max: 350});
-    state.particles.setLifespan({min: 250, max: 600});
-    state.particles.setParticleTint(COLORS[t.type as number]);
+    state.particles.setConfig({
+      speed: { min: 80, max: 350 },
+      lifespan: { min: 250, max: 600 },
+      angle: { min: 0, max: 360 },
+      tint: COLORS[t.type as number]
+    });
     state.particles.emitParticleAt(x, y, 14);
   }
 
