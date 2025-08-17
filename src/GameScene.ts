@@ -1,8 +1,8 @@
 import Phaser from 'phaser';
-import { CONFIG, COLORS, W, H, BOARD_W, BOARD_H, BOARD_X, BOARD_Y } from './config';
+import { CONFIG, COLORS, WILD_COLOR, WILD_TYPE, W, H, BOARD_W, BOARD_H, BOARD_X, BOARD_Y } from './config';
 import { state } from './state';
 import { inBounds, xyToCell, cellToXY, key, parseKey } from './utils';
-import { createsMatchAt, findMatches, swapCells, tweenTo } from './boardLogic';
+import { createsMatchAt, findMatches, swapCells, tweenTo, findSpecialCombinations, SpecialMatch } from './boardLogic';
 import { Match, Tile } from './state';
 
 export class GameScene extends Phaser.Scene {
@@ -120,12 +120,18 @@ export class GameScene extends Phaser.Scene {
                 const dampingMultiplier = 1 - (individualDamping * 0.15); // Increased from 0.05 to 0.15
                 tile.sprite.setVelocity(velocity.x * dampingMultiplier, velocity.y * dampingMultiplier);
                 
-                // Angular damping - also more aggressive
+                // Angular damping - reduced for more spinning
                 const angularVelocity = tile.sprite.body.angularVelocity;
-                const angularDampingMultiplier = 1 - (individualDamping * 0.1); // Increased from 0.03 to 0.1
+                const angularDampingMultiplier = 1 - (individualDamping * 0.02); // Reduced to allow more spinning
                 tile.sprite.setAngularVelocity(angularVelocity * angularDampingMultiplier);
               }
             }
+          }
+          
+          // Update wild gem glow position if it exists
+          if (tile.type === WILD_TYPE) {
+            const updateGlow = tile.sprite.getData('updateGlow');
+            if (updateGlow) updateGlow();
           }
         }
       }
@@ -220,6 +226,56 @@ function buildTileTextures(scene: Phaser.Scene) {
     g.generateTexture(key, s, s);
     g.destroy();
   }
+  
+  // Create wild gem texture
+  const wildKey = 'gem-wild';
+  if (!scene.textures.exists(wildKey)) {
+    const g = scene.add.graphics();
+    const s = CONFIG.TILE * 0.78;
+    const r = 16;
+    
+    // Create wild gem with rainbow border and white center
+    g.fillStyle(0x000000, 0.3);
+    g.fillCircle(s / 2 + 2, s / 2 + 2, s / 2);
+    
+    // Main wild gem body
+    g.fillStyle(WILD_COLOR, 0.9);
+    g.fillRoundedRect((s - (s * 0.86)) / 2, (s - (s * 0.86)) / 2, s * 0.86, s * 0.86, r);
+    
+    // Add rainbow border effect
+    const rainbowColors = [0xff0000, 0xff8000, 0xffff00, 0x80ff00, 0x00ff00, 0x00ffff, 0x0080ff, 0x8000ff];
+    const segments = rainbowColors.length;
+    const angleStep = (Math.PI * 2) / segments;
+    
+    for (let i = 0; i < segments; i++) {
+      g.lineStyle(3, rainbowColors[i], 0.8);
+      const startAngle = i * angleStep;
+      const endAngle = (i + 1) * angleStep;
+      g.beginPath();
+      g.arc(s/2, s/2, (s * 0.86) / 2, startAngle, endAngle);
+      g.strokePath();
+    }
+    
+    // Add star pattern in center
+    g.fillStyle(0x000000, 0.6);
+    const starPoints = 8;
+    const outerRadius = s * 0.2;
+    const innerRadius = s * 0.12;
+    g.beginPath();
+    for (let i = 0; i < starPoints * 2; i++) {
+      const angle = (i * Math.PI) / starPoints;
+      const radius = i % 2 === 0 ? outerRadius : innerRadius;
+      const x = s/2 + Math.cos(angle) * radius;
+      const y = s/2 + Math.sin(angle) * radius;
+      if (i === 0) g.moveTo(x, y);
+      else g.lineTo(x, y);
+    }
+    g.closePath();
+    g.fillPath();
+    
+    g.generateTexture(wildKey, s, s);
+    g.destroy();
+  }
 }
 
 function buildParticleTextures(scene: Phaser.Scene) {
@@ -276,7 +332,7 @@ function initBoard(scene: Phaser.Scene) {
 }
 
 function makeTileSprite(scene: Phaser.Scene, c: number, r: number, type: number) {
-  const key = 'gem-' + type;
+  const key = type === WILD_TYPE ? 'gem-wild' : 'gem-' + type;
   const { x, y } = cellToXY(c, r);
   
   // Create physics body for the gem - use individual damping for air friction too
@@ -376,6 +432,35 @@ function swapAttempt(scene: Phaser.Scene, a: {c: number, r: number}, b: {c: numb
 
   tweenSwap(scene, aTile.sprite!, bTile.sprite!, () => {
     swapCells(state.board, a, b);
+    
+    // Check if one of the gems is a wild gem
+    const aTileAfterSwap = state.board[a.r][a.c];
+    const bTileAfterSwap = state.board[b.r][b.c];
+    
+    if (aTileAfterSwap.type === WILD_TYPE && bTileAfterSwap.type !== null && bTileAfterSwap.type !== WILD_TYPE) {
+      // Wild gem was swapped with a regular gem
+      deselectTile(scene, aTile);
+      state.selected = null;
+      activateWildGem(scene, a, bTileAfterSwap.type);
+      return;
+    } else if (bTileAfterSwap.type === WILD_TYPE && aTileAfterSwap.type !== null && aTileAfterSwap.type !== WILD_TYPE) {
+      // Wild gem was swapped with a regular gem
+      deselectTile(scene, aTile);
+      state.selected = null;
+      activateWildGem(scene, b, aTileAfterSwap.type);
+      return;
+    }
+    
+    // Check for special combinations first
+    const specials = findSpecialCombinations(state.board);
+    if (specials.length > 0) {
+      deselectTile(scene, aTile);
+      state.selected = null;
+      resolveSpecialMatches(scene, specials);
+      return;
+    }
+    
+    // Then check for regular matches
     const matches = findMatches(state.board);
     if (matches.length > 0) {
       deselectTile(scene, aTile);
@@ -415,6 +500,13 @@ function tweenSwap(scene: Phaser.Scene, s1: Phaser.Physics.Matter.Image, s2: Pha
   scene.time.delayedCall(400, onComplete);
 }
 
+function getAcceleratingDelay(chainCount: number): number {
+  // Start at 1000ms, then 700ms, then 400ms, then 200ms for any more
+  const delays = [1000, 700, 400, 200];
+  const index = Math.min(chainCount - 1, delays.length - 1);
+  return delays[Math.max(0, index)];
+}
+
 function resolveMatches(scene: Phaser.Scene, matches: Match[]) {
   state.combo++;
   state.chainReactionCount++;
@@ -446,17 +538,148 @@ function resolveMatches(scene: Phaser.Scene, matches: Match[]) {
   state.score += add;
   if(state.scoreText) state.scoreText.setText(`Score ${state.score}`);
 
-  // Accelerating delay - starts at 180ms, reduces by 20ms per chain reaction, minimum 40ms
-  const baseDelay = 180;
-  const accelerationRate = 20;
-  const minDelay = 40;
-  const delay = Math.max(minDelay, baseDelay - (state.chainReactionCount - 1) * accelerationRate);
-
-  scene.time.delayedCall(delay, () => {
-    dropTiles(scene, () => {
-      const next = findMatches(state.board);
-      if (next.length > 0) {
+  dropTiles(scene, () => {
+    const next = findMatches(state.board);
+    if (next.length > 0) {
+      const delay = getAcceleratingDelay(state.chainReactionCount);
+      scene.time.delayedCall(delay, () => {
         resolveMatches(scene, next);
+      });
+    } else {
+      state.combo = 0;
+      state.chainReactionCount = 0;
+      state.inputLocked = false;
+    }
+  });
+}
+
+function resolveSpecialMatches(scene: Phaser.Scene, specials: SpecialMatch[]) {
+  state.combo++;
+  state.chainReactionCount++;
+  
+  for (const special of specials) {
+    // Clear all the gems in the special combination
+    for (const pos of special.positions) {
+      if (state.board[pos.r][pos.c]?.sprite) {
+        explodeTile(scene, pos.r, pos.c);
+      }
+    }
+    
+    // Create a wild gem at the target position
+    scene.time.delayedCall(200, () => {
+      if (state.board[special.targetPos.r] && state.board[special.targetPos.c]) {
+        const wildSprite = makeTileSprite(scene, special.targetPos.c, special.targetPos.r, WILD_TYPE);
+        wildSprite.setData('originalType', special.gemType);
+        state.board[special.targetPos.r][special.targetPos.c] = { type: WILD_TYPE, sprite: wildSprite };
+        
+        // Add special glow effect to wild gem
+        addWildGemGlow(scene, wildSprite);
+      }
+    });
+  }
+  
+  scene.time.delayedCall(200, () => {
+    dropTiles(scene, () => {
+      // After dropping, check for regular matches and special combinations
+      const nextSpecials = findSpecialCombinations(state.board);
+      const nextMatches = findMatches(state.board);
+      
+      if (nextSpecials.length > 0) {
+        const delay = getAcceleratingDelay(state.chainReactionCount);
+        scene.time.delayedCall(delay, () => {
+          resolveSpecialMatches(scene, nextSpecials);
+        });
+      } else if (nextMatches.length > 0) {
+        const delay = getAcceleratingDelay(state.chainReactionCount);
+        scene.time.delayedCall(delay, () => {
+          resolveMatches(scene, nextMatches);
+        });
+      } else {
+        state.combo = 0;
+        state.chainReactionCount = 0;
+        state.inputLocked = false;
+      }
+    });
+  });
+}
+
+function addWildGemGlow(scene: Phaser.Scene, sprite: Phaser.Physics.Matter.Image) {
+  // Add pulsing glow effect to wild gems
+  const glow = scene.add.circle(sprite.x, sprite.y, CONFIG.TILE * 0.5, 0xffffff, 0.3);
+  glow.setDepth(sprite.depth - 1);
+  sprite.setData('glow', glow);
+  
+  // Animate the glow
+  scene.tweens.add({
+    targets: glow,
+    scale: { from: 1, to: 1.2 },
+    alpha: { from: 0.3, to: 0.6 },
+    duration: 1000,
+    yoyo: true,
+    repeat: -1,
+    ease: 'Sine.easeInOut'
+  });
+  
+  // Update glow position when sprite moves
+  const updateGlow = () => {
+    if (glow && sprite) {
+      glow.setPosition(sprite.x, sprite.y);
+    }
+  };
+  
+  sprite.setData('updateGlow', updateGlow);
+}
+
+function activateWildGem(scene: Phaser.Scene, wildPos: {r: number, c: number}, targetType: number) {
+  const wild = state.board[wildPos.r][wildPos.c];
+  if (!wild || wild.type !== WILD_TYPE) return;
+  
+  // Find all gems of the target type
+  const gemsToDestroy: {r: number, c: number}[] = [];
+  for (let r = 0; r < CONFIG.ROWS; r++) {
+    for (let c = 0; c < CONFIG.COLS; c++) {
+      const tile = state.board[r][c];
+      if (tile && tile.type === targetType) {
+        gemsToDestroy.push({r, c});
+      }
+    }
+  }
+  
+  // Also destroy the wild gem itself
+  gemsToDestroy.push(wildPos);
+  
+  // Explode all matching gems
+  gemsToDestroy.forEach(pos => {
+    explodeTile(scene, pos.r, pos.c);
+  });
+  
+  // Calculate score based on gems destroyed
+  const gemsDestroyed = gemsToDestroy.length;
+  const add = Math.floor(gemsDestroyed * 25 * Math.max(1, state.combo * 0.8));
+  state.score += add;
+  if(state.scoreText) state.scoreText.setText(`Score ${state.score}`);
+  
+  // Screen flash and shake for dramatic effect
+  scene.cameras.main.flash(200, 255, 255, 255);
+  scene.cameras.main.shake(250, 0.015);
+  
+  // After a brief delay for visual effect, drop tiles and check for new matches
+  scene.time.delayedCall(300, () => {
+    dropTiles(scene, () => {
+      // Check for special combinations first, then regular matches
+      const nextSpecials = findSpecialCombinations(state.board);
+      const nextMatches = findMatches(state.board);
+      
+      if (nextSpecials.length > 0) {
+        const delay = getAcceleratingDelay(state.chainReactionCount || 1);
+        scene.time.delayedCall(delay, () => {
+          resolveSpecialMatches(scene, nextSpecials);
+        });
+      } else if (nextMatches.length > 0) {
+        const delay = getAcceleratingDelay(state.chainReactionCount || 1);
+        scene.time.delayedCall(delay, () => {
+          resolveMatches(scene, nextMatches);
+        });
       } else {
         state.combo = 0;
         state.chainReactionCount = 0;
@@ -480,10 +703,11 @@ function explodeTile(scene: Phaser.Scene, r: number, c: number) {
     }
   }
 
-  spawnShards(scene, x, y, COLORS[t.type as number]);
+  const gemColor = t.type === WILD_TYPE ? WILD_COLOR : COLORS[t.type as number];
+  spawnShards(scene, x, y, gemColor);
 
   // Create spectacular explosion effect
-  createExplosionEffect(scene, x, y, COLORS[t.type as number]);
+  createExplosionEffect(scene, x, y, gemColor);
   
   scene.tweens.add({ 
     targets: t.sprite, 

@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { CONFIG } from './config';
+import { CONFIG, WILD_TYPE } from './config';
 import { Match, Tile } from './state';
 
 export function createsMatchAt(board: Tile[][], r: number, c: number, type: number): boolean {
@@ -93,4 +93,199 @@ export function wouldSwapCreateMatch(board: Tile[][], a: {r: number, c: number},
   const had = findMatches(clone, rows, cols).length > 0;
 
   return had;
+}
+
+export interface SpecialMatch {
+  type: 'four_row' | 'square' | 'five_row' | 'l_shape' | 't_shape';
+  positions: {r: number, c: number}[];
+  targetPos: {r: number, c: number};
+  gemType: number;
+}
+
+export function findSpecialCombinations(board: Tile[][]): SpecialMatch[] {
+  const specials: SpecialMatch[] = [];
+  const rows = CONFIG.ROWS;
+  const cols = CONFIG.COLS;
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const tile = board[r][c];
+      if (!tile || tile.type === null || tile.type === WILD_TYPE) continue;
+      
+      const type = tile.type;
+      
+      // Check for 4 in a row (horizontal)
+      if (c <= cols - 4) {
+        let count = 0;
+        for (let i = 0; i < 4; i++) {
+          if (board[r][c + i]?.type === type) count++;
+        }
+        if (count === 4) {
+          specials.push({
+            type: 'four_row',
+            positions: Array.from({length: 4}, (_, i) => ({r, c: c + i})),
+            targetPos: {r, c: c + 1},
+            gemType: type
+          });
+        }
+      }
+      
+      // Check for 4 in a row (vertical)
+      if (r <= rows - 4) {
+        let count = 0;
+        for (let i = 0; i < 4; i++) {
+          if (board[r + i][c]?.type === type) count++;
+        }
+        if (count === 4) {
+          specials.push({
+            type: 'four_row',
+            positions: Array.from({length: 4}, (_, i) => ({r: r + i, c})),
+            targetPos: {r: r + 1, c},
+            gemType: type
+          });
+        }
+      }
+      
+      // Check for 2x2 square
+      if (r <= rows - 2 && c <= cols - 2) {
+        if (board[r][c]?.type === type &&
+            board[r][c + 1]?.type === type &&
+            board[r + 1][c]?.type === type &&
+            board[r + 1][c + 1]?.type === type) {
+          specials.push({
+            type: 'square',
+            positions: [{r, c}, {r, c: c + 1}, {r: r + 1, c}, {r: r + 1, c: c + 1}],
+            targetPos: {r, c},
+            gemType: type
+          });
+        }
+      }
+      
+      // Check for 5 in a row (horizontal)
+      if (c <= cols - 5) {
+        let count = 0;
+        for (let i = 0; i < 5; i++) {
+          if (board[r][c + i]?.type === type) count++;
+        }
+        if (count === 5) {
+          specials.push({
+            type: 'five_row',
+            positions: Array.from({length: 5}, (_, i) => ({r, c: c + i})),
+            targetPos: {r, c: c + 2},
+            gemType: type
+          });
+        }
+      }
+      
+      // Check for 5 in a row (vertical)
+      if (r <= rows - 5) {
+        let count = 0;
+        for (let i = 0; i < 5; i++) {
+          if (board[r + i][c]?.type === type) count++;
+        }
+        if (count === 5) {
+          specials.push({
+            type: 'five_row',
+            positions: Array.from({length: 5}, (_, i) => ({r: r + i, c})),
+            targetPos: {r: r + 2, c},
+            gemType: type
+          });
+        }
+      }
+      
+      // Check for L-shaped 5 (4 patterns)
+      if (r <= rows - 3 && c <= cols - 3) {
+        // L shape: top-left corner
+        if (board[r][c]?.type === type &&
+            board[r][c + 1]?.type === type &&
+            board[r][c + 2]?.type === type &&
+            board[r + 1][c]?.type === type &&
+            board[r + 2][c]?.type === type) {
+          specials.push({
+            type: 'l_shape',
+            positions: [{r, c}, {r, c: c + 1}, {r, c: c + 2}, {r: r + 1, c}, {r: r + 2, c}],
+            targetPos: {r, c},
+            gemType: type
+          });
+        }
+        
+        // L shape: top-right corner
+        if (board[r][c]?.type === type &&
+            board[r][c + 1]?.type === type &&
+            board[r][c + 2]?.type === type &&
+            board[r + 1][c + 2]?.type === type &&
+            board[r + 2][c + 2]?.type === type) {
+          specials.push({
+            type: 'l_shape',
+            positions: [{r, c}, {r, c: c + 1}, {r, c: c + 2}, {r: r + 1, c: c + 2}, {r: r + 2, c: c + 2}],
+            targetPos: {r, c: c + 2},
+            gemType: type
+          });
+        }
+        
+        // L shape: bottom-left corner
+        if (board[r][c]?.type === type &&
+            board[r + 1][c]?.type === type &&
+            board[r + 2][c]?.type === type &&
+            board[r + 2][c + 1]?.type === type &&
+            board[r + 2][c + 2]?.type === type) {
+          specials.push({
+            type: 'l_shape',
+            positions: [{r, c}, {r: r + 1, c}, {r: r + 2, c}, {r: r + 2, c: c + 1}, {r: r + 2, c: c + 2}],
+            targetPos: {r: r + 2, c},
+            gemType: type
+          });
+        }
+        
+        // L shape: bottom-right corner
+        if (board[r][c + 2]?.type === type &&
+            board[r + 1][c + 2]?.type === type &&
+            board[r + 2][c + 2]?.type === type &&
+            board[r + 2][c + 1]?.type === type &&
+            board[r + 2][c]?.type === type) {
+          specials.push({
+            type: 'l_shape',
+            positions: [{r, c: c + 2}, {r: r + 1, c: c + 2}, {r: r + 2, c: c + 2}, {r: r + 2, c: c + 1}, {r: r + 2, c}],
+            targetPos: {r: r + 2, c: c + 2},
+            gemType: type
+          });
+        }
+      }
+      
+      // Check for T-shaped 5 (4 orientations)
+      if (r >= 1 && r <= rows - 2 && c <= cols - 3) {
+        // T shape: horizontal base, vertical top
+        if (board[r][c]?.type === type &&
+            board[r][c + 1]?.type === type &&
+            board[r][c + 2]?.type === type &&
+            board[r - 1][c + 1]?.type === type &&
+            board[r + 1][c + 1]?.type === type) {
+          specials.push({
+            type: 't_shape',
+            positions: [{r, c}, {r, c: c + 1}, {r, c: c + 2}, {r: r - 1, c: c + 1}, {r: r + 1, c: c + 1}],
+            targetPos: {r, c: c + 1},
+            gemType: type
+          });
+        }
+      }
+      
+      if (r <= rows - 3 && c >= 1 && c <= cols - 2) {
+        // T shape: vertical base, horizontal right
+        if (board[r][c]?.type === type &&
+            board[r + 1][c]?.type === type &&
+            board[r + 2][c]?.type === type &&
+            board[r + 1][c - 1]?.type === type &&
+            board[r + 1][c + 1]?.type === type) {
+          specials.push({
+            type: 't_shape',
+            positions: [{r, c}, {r: r + 1, c}, {r: r + 2, c}, {r: r + 1, c: c - 1}, {r: r + 1, c: c + 1}],
+            targetPos: {r: r + 1, c},
+            gemType: type
+          });
+        }
+      }
+    }
+  }
+  
+  return specials;
 }
