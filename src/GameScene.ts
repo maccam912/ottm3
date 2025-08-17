@@ -21,6 +21,9 @@ export class GameScene extends Phaser.Scene {
     // Set physics simulation speed
     this.matter.world.engine.timing.timeScale = CONFIG.TIME_SCALE;
 
+    // Add disco lighting effects
+    addDiscoLights(this);
+
     // Vignette
     addVignette(this);
 
@@ -130,6 +133,36 @@ export class GameScene extends Phaser.Scene {
   }
 }
 
+function addDiscoLights(scene: Phaser.Scene) {
+  // Create animated disco lights that move around the screen
+  for (let i = 0; i < 8; i++) {
+    const light = scene.add.graphics();
+    const hue = (i / 8) * 360;
+    const color = Phaser.Display.Color.HSVToRGB(hue / 360, 0.8, 1);
+    const colorHex = Phaser.Display.Color.GetColor(color.r, color.g, color.b);
+    
+    light.fillStyle(colorHex, 0.3);
+    light.fillCircle(0, 0, 40 + Math.random() * 30);
+    light.setBlendMode(Phaser.BlendModes.ADD);
+    light.setDepth(-10);
+    
+    // Animate the disco light
+    scene.tweens.add({
+      targets: light,
+      x: { from: Math.random() * W, to: Math.random() * W },
+      y: { from: Math.random() * H, to: Math.random() * H },
+      alpha: { from: 0.1, to: 0.4 },
+      scaleX: { from: 0.5, to: 1.5 },
+      scaleY: { from: 0.5, to: 1.5 },
+      duration: 3000 + Math.random() * 2000,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.inOut',
+      delay: i * 200
+    });
+  }
+}
+
 function addVignette(scene: Phaser.Scene) {
   const g = scene.add.graphics({ x: 0, y: 0 });
   g.fillStyle(0x000000, 0.25);
@@ -154,15 +187,36 @@ function buildTileTextures(scene: Phaser.Scene) {
   for (let i = 0; i < CONFIG.TYPES; i++) {
     const key = 'gem-' + i;
     if (scene.textures.exists(key)) continue;
+    
     const g = scene.add.graphics();
     const s = CONFIG.TILE * 0.78;
     const r = 16;
-    g.fillStyle(COLORS[i], 0.25);
-    g.fillCircle(s / 2, s / 2, s / 2);
-    g.fillStyle(COLORS[i], 1);
+    
+    // Create a more 3D-looking gem with multiple layers
+    // Base shadow/depth
+    g.fillStyle(0x000000, 0.3);
+    g.fillCircle(s / 2 + 2, s / 2 + 2, s / 2);
+    
+    // Main gem body with gradient effect
+    g.fillStyle(COLORS[i], 0.9);
     g.fillRoundedRect((s - (s * 0.86)) / 2, (s - (s * 0.86)) / 2, s * 0.86, s * 0.86, r);
-    g.fillStyle(0xffffff, 0.25);
-    g.fillEllipse(s * 0.45, s * 0.35, s * 0.55, s * 0.28);
+    
+    // Inner facet reflections
+    g.fillStyle(COLORS[i], 0.7);
+    g.fillRoundedRect((s - (s * 0.7)) / 2, (s - (s * 0.7)) / 2, s * 0.7, s * 0.7, r * 0.8);
+    
+    // Highlight reflections
+    g.fillStyle(0xffffff, 0.6);
+    g.fillEllipse(s * 0.3, s * 0.25, s * 0.3, s * 0.15);
+    
+    // Secondary highlight
+    g.fillStyle(0xffffff, 0.4);
+    g.fillEllipse(s * 0.6, s * 0.4, s * 0.15, s * 0.1);
+    
+    // Prismatic edge effect
+    g.lineStyle(2, 0xffffff, 0.8);
+    g.strokeRoundedRect((s - (s * 0.86)) / 2, (s - (s * 0.86)) / 2, s * 0.86, s * 0.86, r);
+    
     g.generateTexture(key, s, s);
     g.destroy();
   }
@@ -247,6 +301,27 @@ function makeTileSprite(scene: Phaser.Scene, c: number, r: number, type: number)
   s.setData('targetY', y);
   s.setData('individualDampingFactor', gemIndividualDampingFactor);
   
+  // Add subtle glow effect to each gem
+  const glow = scene.add.graphics();
+  const glowColor = COLORS[type];
+  glow.fillStyle(glowColor, 0.2);
+  glow.fillCircle(x, y, CONFIG.TILE * 0.6);
+  glow.setBlendMode(Phaser.BlendModes.ADD);
+  glow.setDepth(5);
+  
+  // Animate the glow
+  scene.tweens.add({
+    targets: glow,
+    alpha: { from: 0.1, to: 0.3 },
+    scaleX: { from: 0.8, to: 1.2 },
+    scaleY: { from: 0.8, to: 1.2 },
+    duration: 2000 + Math.random() * 1000,
+    yoyo: true,
+    repeat: -1,
+    ease: 'Sine.inOut'
+  });
+  
+  s.setData('glow', glow);
   s.setDepth(10);
   
   // Physics bodies will naturally rotate from explosion forces
@@ -407,7 +482,22 @@ function explodeTile(scene: Phaser.Scene, r: number, c: number) {
 
   spawnShards(scene, x, y, COLORS[t.type as number]);
 
-  scene.tweens.add({ targets: t.sprite, scale: 1.4, alpha: 0, duration: 130, ease: 'Back.easeIn', onComplete: () => t.sprite?.destroy() });
+  // Create spectacular explosion effect
+  createExplosionEffect(scene, x, y, COLORS[t.type as number]);
+  
+  scene.tweens.add({ 
+    targets: t.sprite, 
+    scale: 1.4, 
+    alpha: 0, 
+    duration: 130, 
+    ease: 'Back.easeIn', 
+    onComplete: () => {
+      // Destroy glow effect too
+      const glow = t.sprite?.getData('glow');
+      if (glow) glow.destroy();
+      t.sprite?.destroy();
+    }
+  });
 
   state.board[r][c] = { type: null, sprite: null };
 }
@@ -452,6 +542,54 @@ function applyExplosionForce(scene: Phaser.Scene, blastX: number, blastY: number
       }
     }
   }
+}
+
+function createExplosionEffect(scene: Phaser.Scene, x: number, y: number, color: number) {
+  // Create a burst of prismatic light rays
+  for (let i = 0; i < 12; i++) {
+    const ray = scene.add.graphics();
+    const angle = (i / 12) * Math.PI * 2;
+    const length = 60 + Math.random() * 40;
+    
+    // Create rainbow effect by shifting hue
+    const hue = ((color >> 16) & 0xFF) / 255 * 360;
+    const shiftedHue = (hue + i * 30) % 360;
+    const shiftedColor = Phaser.Display.Color.HSVToRGB(shiftedHue / 360, 0.8, 1);
+    const rayColor = Phaser.Display.Color.GetColor(shiftedColor.r, shiftedColor.g, shiftedColor.b);
+    
+    ray.lineStyle(4, rayColor, 0.8);
+    ray.lineBetween(x, y, x + Math.cos(angle) * length, y + Math.sin(angle) * length);
+    ray.setBlendMode(Phaser.BlendModes.ADD);
+    ray.setDepth(50);
+    
+    // Animate the ray
+    scene.tweens.add({
+      targets: ray,
+      alpha: { from: 0.8, to: 0 },
+      scaleX: { from: 0.1, to: 1 },
+      scaleY: { from: 0.1, to: 1 },
+      duration: 300,
+      ease: 'Quad.out',
+      onComplete: () => ray.destroy()
+    });
+  }
+  
+  // Central flash
+  const flash = scene.add.graphics();
+  flash.fillStyle(0xffffff, 0.9);
+  flash.fillCircle(x, y, 20);
+  flash.setBlendMode(Phaser.BlendModes.ADD);
+  flash.setDepth(60);
+  
+  scene.tweens.add({
+    targets: flash,
+    alpha: { from: 0.9, to: 0 },
+    scaleX: { from: 0.1, to: 3 },
+    scaleY: { from: 0.1, to: 3 },
+    duration: 200,
+    ease: 'Quad.out',
+    onComplete: () => flash.destroy()
+  });
 }
 
 function spawnShards(scene: Phaser.Scene, x: number, y: number, color: number) {

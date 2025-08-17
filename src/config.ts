@@ -12,7 +12,7 @@ export const CONFIG = {
   EXPLOSION_RADIUS: 120 // Explosion effect radius in pixels
 };
 
-export const COLORS = [0xff4757, 0x70a1ff, 0x2ed573, 0xffd32a, 0xa29bfe, 0xff6b81];
+export const COLORS = [0xdc143c, 0x1e90ff, 0x32cd32, 0xffd700, 0xff1493, 0xff8c00]; // Deep red, blue, green, gold, hot pink, orange
 
 export const W = 900;
 export const H = 700;
