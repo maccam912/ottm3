@@ -1,6 +1,6 @@
 export const CONFIG = {
-  COLS: 16,
-  ROWS: 32,
+  COLS: 40,
+  ROWS: 40,
   TILE: 72,
   TYPES: 6,
   GRAVITY_Y: 1.2,
