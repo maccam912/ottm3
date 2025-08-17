@@ -62,9 +62,20 @@ export function swapCells(board: Tile[][], a: {r: number, c: number}, b: {r: num
   if (aTile.sprite) aTile.sprite.setData('c', b.c).setData('r', b.r);
 }
 
-export function tweenTo(scene: Phaser.Scene, sprite: Phaser.GameObjects.Image, x: number, y: number): Promise<void> {
+export function tweenTo(scene: Phaser.Scene, sprite: Phaser.Physics.Matter.Image, x: number, y: number): Promise<void> {
   return new Promise(res => {
-    scene.tweens.add({ targets: sprite, x, y, duration: 160, ease: 'Quad.out', onComplete: res });
+    // Update target position for physics attraction
+    sprite.setData('targetX', x);
+    sprite.setData('targetY', y);
+    
+    // Apply stronger initial force towards target
+    const dx = x - sprite.x;
+    const dy = y - sprite.y;
+    const force = 0.003;
+    sprite.applyForce({ x: dx * force, y: dy * force });
+    
+    // Complete after a delay to allow physics movement
+    scene.time.delayedCall(600, res);
   });
 }
 

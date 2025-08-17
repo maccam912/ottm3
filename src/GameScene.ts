@@ -17,6 +17,9 @@ export class GameScene extends Phaser.Scene {
   create() {
     // World bounds for shards
     this.matter.world.setBounds(0, 0, W, H, 32, true, true, true, true);
+    
+    // Set physics simulation speed
+    this.matter.world.engine.timing.timeScale = CONFIG.TIME_SCALE;
 
     // Vignette
     addVignette(this);
@@ -46,20 +49,26 @@ export class GameScene extends Phaser.Scene {
     // Generate textures
     buildTileTextures(this);
     buildParticleTextures(this);
-    ensureTexture(this, 'spark');
     ensureTexture(this, 'shard');
 
-    // Particle manager
-    state.particles = this.add.particles(0, 0, 'spark', {
+    // Particle manager - we'll create multiple emitters for rainbow colors
+    const rainbowEmitters: Phaser.GameObjects.Particles.ParticleEmitter[] = [];
+    for(let i = 0; i < 12; i++) {
+      const emitter = this.add.particles(0, 0, `spark-${i}`, {
         speed: { min: 80, max: 350 },
         scale: { start: 0.9, end: 0 },
         alpha: { start: 1, end: 0 },
-        lifespan: { min: 250, max: 600 },
-        quantity: 14,
+        lifespan: { min: 800, max: 1200 },
+        quantity: 1,
         angle: { min: 0, max: 360 },
         blendMode: 'ADD',
-    });
-    state.particles.stop();
+        gravity: { x: 0, y: 50 }
+      });
+      emitter.stop();
+      rainbowEmitters.push(emitter);
+    }
+    state.particles = rainbowEmitters[0]; // Store first one for compatibility
+    state.rainbowEmitters = rainbowEmitters;
 
 
     // Initialize board
@@ -79,6 +88,45 @@ export class GameScene extends Phaser.Scene {
     if (state.shardsCount > 450) {
       state.shardsCount = 0;
     }
+    
+    // Update gem physics - attract to target positions
+    for (let r = 0; r < CONFIG.ROWS; r++) {
+      for (let c = 0; c < CONFIG.COLS; c++) {
+        const tile = state.board[r][c];
+        if (tile && tile.sprite && tile.type !== null) {
+          const targetX = tile.sprite.getData('targetX');
+          const targetY = tile.sprite.getData('targetY');
+          
+          if (targetX !== undefined && targetY !== undefined) {
+            const dx = targetX - tile.sprite.x;
+            const dy = targetY - tile.sprite.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance > 2) {
+              // Apply spring force towards target position
+              const force = 0.0005;
+              const forceX = dx * force;
+              const forceY = dy * force;
+              tile.sprite.applyForce({ x: forceX, y: forceY });
+              
+              // Configurable damping to prevent oscillation
+              const individualDamping = tile.sprite.getData('individualDampingFactor') || CONFIG.DAMPING_FACTOR;
+              if (individualDamping > 0) {
+                const velocity = tile.sprite.body.velocity;
+                // Make damping more aggressive so variation is more visible
+                const dampingMultiplier = 1 - (individualDamping * 0.15); // Increased from 0.05 to 0.15
+                tile.sprite.setVelocity(velocity.x * dampingMultiplier, velocity.y * dampingMultiplier);
+                
+                // Angular damping - also more aggressive
+                const angularVelocity = tile.sprite.body.angularVelocity;
+                const angularDampingMultiplier = 1 - (individualDamping * 0.1); // Increased from 0.03 to 0.1
+                tile.sprite.setAngularVelocity(angularVelocity * angularDampingMultiplier);
+              }
+            }
+          }
+        }
+      }
+    }
   }
 }
 
@@ -90,6 +138,7 @@ function addVignette(scene: Phaser.Scene) {
 }
 
 function ensureTexture(scene: Phaser.Scene, key: string) {
+  if (key === 'spark') return; // Don't create white spark texture
   if (!scene.textures.exists(key)) {
     const c = scene.textures.createCanvas(key, 2, 2);
     if(c) {
@@ -120,13 +169,20 @@ function buildTileTextures(scene: Phaser.Scene) {
 }
 
 function buildParticleTextures(scene: Phaser.Scene) {
-  if (!scene.textures.exists('spark')) {
-    const g1 = scene.add.graphics();
-    g1.fillStyle(0xffffff, 1);
-    g1.fillCircle(8, 8, 8);
-    g1.generateTexture('spark', 16, 16);
-    g1.destroy();
-  }
+  // Create rainbow colored spark textures
+  const rainbowColors = [0xff0000, 0xff8000, 0xffff00, 0x80ff00, 0x00ff00, 0x00ff80, 0x00ffff, 0x0080ff, 0x0000ff, 0x8000ff, 0xff00ff, 0xff0080];
+  
+  rainbowColors.forEach((color, index) => {
+    const key = `spark-${index}`;
+    if (!scene.textures.exists(key)) {
+      const g1 = scene.add.graphics();
+      g1.fillStyle(color, 1);
+      g1.fillCircle(8, 8, 8);
+      g1.generateTexture(key, 16, 16);
+      g1.destroy();
+    }
+  });
+
   if (!scene.textures.exists('shard')) {
     const g2 = scene.add.graphics();
     g2.fillStyle(0xffffff, 1);
@@ -168,12 +224,34 @@ function initBoard(scene: Phaser.Scene) {
 function makeTileSprite(scene: Phaser.Scene, c: number, r: number, type: number) {
   const key = 'gem-' + type;
   const { x, y } = cellToXY(c, r);
-  const s = scene.add.image(x, y, key).setOrigin(0.5).setScale(1);
+  
+  // Create physics body for the gem - use individual damping for air friction too
+  const baseFrictionAir = 0.15; // Increased base friction so variation is more noticeable
+  const gemDampingVariation = (Math.random() - 0.5) * CONFIG.DAMPING_VARIATION;
+  const gemIndividualDampingFactor = Math.max(0, Math.min(1, CONFIG.DAMPING_FACTOR + gemDampingVariation));
+  const adjustedFrictionAir = baseFrictionAir * gemIndividualDampingFactor;
+  
+  const s = scene.matter.add.image(x, y, key, undefined, {
+    isStatic: false,
+    frictionAir: adjustedFrictionAir,
+    friction: 0.001,
+    restitution: 0.5,
+    density: 0.001,
+    isSensor: true  // Turn off collision between gems
+  }).setOrigin(0.5).setScale(1);
+  
   s.setInteractive();
   s.setData('c', c);
   s.setData('r', r);
+  s.setData('targetX', x);
+  s.setData('targetY', y);
+  s.setData('individualDampingFactor', gemIndividualDampingFactor);
+  
   s.setDepth(10);
-  scene.tweens.add({ targets: s, angle: { from: -2, to: 2 }, duration: 2400, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+  
+  // Physics bodies will naturally rotate from explosion forces
+  // No need for artificial rotation tweens
+  
   return s;
 }
 
@@ -238,22 +316,33 @@ function swapAttempt(scene: Phaser.Scene, a: {c: number, r: number}, b: {c: numb
   });
 }
 
-function tweenSwap(scene: Phaser.Scene, s1: Phaser.GameObjects.Image, s2: Phaser.GameObjects.Image, onComplete: () => void) {
+function tweenSwap(scene: Phaser.Scene, s1: Phaser.Physics.Matter.Image, s2: Phaser.Physics.Matter.Image, onComplete: () => void) {
   const p1 = { x: s1.x, y: s1.y };
   const p2 = { x: s2.x, y: s2.y };
-  scene.tweens.addCounter({
-    from: 0, to: 100, duration: 140, ease: 'Sine.inOut', onUpdate: t => {
-      const k = t.progress;
-      s1.x = Phaser.Math.Interpolation.Linear([p1.x, p2.x], k);
-      s1.y = Phaser.Math.Interpolation.Linear([p1.y, p2.y], k);
-      s2.x = Phaser.Math.Interpolation.Linear([p2.x, p1.x], k);
-      s2.y = Phaser.Math.Interpolation.Linear([p2.y, p1.y], k);
-    }, onComplete
-  });
+  
+  // Update target positions
+  s1.setData('targetX', p2.x);
+  s1.setData('targetY', p2.y);
+  s2.setData('targetX', p1.x);
+  s2.setData('targetY', p1.y);
+  
+  // Apply forces to move gems via physics instead of direct position manipulation
+  const force = 0.004;
+  const dx1 = p2.x - p1.x;
+  const dy1 = p2.y - p1.y;
+  const dx2 = p1.x - p2.x;
+  const dy2 = p1.y - p2.y;
+  
+  s1.applyForce({ x: dx1 * force, y: dy1 * force });
+  s2.applyForce({ x: dx2 * force, y: dy2 * force });
+  
+  // Complete after physics has time to work
+  scene.time.delayedCall(400, onComplete);
 }
 
 function resolveMatches(scene: Phaser.Scene, matches: Match[]) {
   state.combo++;
+  state.chainReactionCount++;
   const toClear = new Set<string>();
   for (const m of matches) {
     if (m.dir === 'h') {
@@ -271,18 +360,31 @@ function resolveMatches(scene: Phaser.Scene, matches: Match[]) {
   scene.cameras.main.shake(160, intensity);
 
   clearList.forEach(({ r, c }) => explodeTile(scene, r, c));
+  
+  // Apply explosion forces to nearby gems
+  clearList.forEach(({ r, c }) => {
+    const { x: blastX, y: blastY } = cellToXY(c, r);
+    applyExplosionForce(scene, blastX, blastY, CONFIG.EXPLOSION_RADIUS, CONFIG.EXPLOSION_FORCE);
+  });
 
   const add = Math.floor(tilesCleared * 10 * Math.max(1, state.combo * 0.6));
   state.score += add;
   if(state.scoreText) state.scoreText.setText(`Score ${state.score}`);
 
-  scene.time.delayedCall(180, () => {
+  // Accelerating delay - starts at 180ms, reduces by 20ms per chain reaction, minimum 40ms
+  const baseDelay = 180;
+  const accelerationRate = 20;
+  const minDelay = 40;
+  const delay = Math.max(minDelay, baseDelay - (state.chainReactionCount - 1) * accelerationRate);
+
+  scene.time.delayedCall(delay, () => {
     dropTiles(scene, () => {
       const next = findMatches(state.board);
       if (next.length > 0) {
         resolveMatches(scene, next);
       } else {
         state.combo = 0;
+        state.chainReactionCount = 0;
         state.inputLocked = false;
       }
     });
@@ -294,14 +396,13 @@ function explodeTile(scene: Phaser.Scene, r: number, c: number) {
   if (!t || !t.sprite) return;
   const { x, y } = cellToXY(c, r);
 
-  if(state.particles) {
-    state.particles.setConfig({
-      speed: { min: 80, max: 350 },
-      lifespan: { min: 250, max: 600 },
-      angle: { min: 0, max: 360 },
-      tint: COLORS[t.type as number]
-    });
-    state.particles.emitParticleAt(x, y, 14);
+  if(state.rainbowEmitters) {
+    // Emit rainbow colored particles
+    for(let i = 0; i < 14; i++) {
+      const randomEmitterIndex = Math.floor(Math.random() * state.rainbowEmitters.length);
+      const emitter = state.rainbowEmitters[randomEmitterIndex];
+      emitter.emitParticleAt(x, y, 1);
+    }
   }
 
   spawnShards(scene, x, y, COLORS[t.type as number]);
@@ -309,6 +410,48 @@ function explodeTile(scene: Phaser.Scene, r: number, c: number) {
   scene.tweens.add({ targets: t.sprite, scale: 1.4, alpha: 0, duration: 130, ease: 'Back.easeIn', onComplete: () => t.sprite?.destroy() });
 
   state.board[r][c] = { type: null, sprite: null };
+}
+
+function applyExplosionForce(scene: Phaser.Scene, blastX: number, blastY: number, radius: number, baseForce: number) {
+  for (let r = 0; r < CONFIG.ROWS; r++) {
+    for (let c = 0; c < CONFIG.COLS; c++) {
+      const tile = state.board[r][c];
+      if (tile && tile.sprite && tile.type !== null) {
+        const dx = tile.sprite.x - blastX;
+        const dy = tile.sprite.y - blastY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance < radius && distance > 5) { // Avoid division by zero
+          // Inverse square law: F = k / d²
+          const distanceSquared = distance * distance;
+          const forceMagnitude = (baseForce * radius * radius) / distanceSquared;
+          
+          // Normalize direction vector
+          const dirX = dx / distance;
+          const dirY = dy / distance;
+          
+          // Add some angular variation to make it less rigid
+          const angleVariation = (Math.random() - 0.5) * 0.6; // ±17 degrees variation
+          const cos = Math.cos(angleVariation);
+          const sin = Math.sin(angleVariation);
+          
+          // Rotate the direction vector
+          const rotatedDirX = dirX * cos - dirY * sin;
+          const rotatedDirY = dirX * sin + dirY * cos;
+          
+          // Apply the force
+          const forceX = rotatedDirX * forceMagnitude;
+          const forceY = rotatedDirY * forceMagnitude;
+          
+          tile.sprite.applyForce({ x: forceX, y: forceY });
+          
+          // Add rotational impulse based on force magnitude
+          const torque = (Math.random() - 0.5) * forceMagnitude * 0.5;
+          tile.sprite.setAngularVelocity(tile.sprite.body.angularVelocity + torque);
+        }
+      }
+    }
+  }
 }
 
 function spawnShards(scene: Phaser.Scene, x: number, y: number, color: number) {
@@ -337,8 +480,11 @@ function dropTiles(scene: Phaser.Scene, onComplete: () => void) {
       if (t && t.type !== null) {
         if (writeRow !== r) {
           const dest = cellToXY(c, writeRow);
-          if (t.sprite) promises.push(tweenTo(scene, t.sprite, dest.x, dest.y));
-          if (t.sprite) t.sprite.setData('r', writeRow);
+          if (t.sprite) {
+            promises.push(tweenTo(scene, t.sprite, dest.x, dest.y));
+            t.sprite.setData('r', writeRow);
+            t.sprite.setData('c', c);
+          }
           state.board[writeRow][c] = t;
           state.board[r][c] = { type: null, sprite: null };
         }
@@ -347,17 +493,31 @@ function dropTiles(scene: Phaser.Scene, onComplete: () => void) {
     }
     for (let r = writeRow; r >= 0; r--) {
       const type = Phaser.Math.Between(0, CONFIG.TYPES - 1);
+      const dest = cellToXY(c, r);
       const s = makeTileSprite(scene, c, r, type);
       const start = cellToXY(c, -1 - Phaser.Math.Between(0, 2));
-      s.x = start.x;
-      s.y = start.y;
-      const dest = cellToXY(c, r);
+      s.setPosition(start.x, start.y);
       s.alpha = 0;
       s.scale = 0.8;
       const t = { type, sprite: s };
       state.board[r][c] = t;
+      
       promises.push(new Promise(res => {
-        scene.tweens.add({ targets: s, x: dest.x, y: dest.y, alpha: 1, scale: 1, duration: 220 + (writeRow - r) * 30, ease: 'Back.out', onComplete: res });
+        // Only animate alpha and scale, let physics handle position
+        scene.tweens.add({ 
+          targets: s, 
+          alpha: 1, 
+          scale: 1, 
+          duration: 800 + (writeRow - r) * 100, 
+          ease: 'Sine.out', 
+          onComplete: res
+        });
+        
+        // Apply physics force to move to destination
+        const dx = dest.x - s.x;
+        const dy = dest.y - s.y;
+        const force = 0.003;
+        s.applyForce({ x: dx * force, y: dy * force });
       }));
     }
   }

@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 
 export interface Tile {
   type: number | null;
-  sprite: Phaser.GameObjects.Image | null;
+  sprite: Phaser.Physics.Matter.Image | null;
 }
 
 export interface Match {
@@ -22,6 +22,8 @@ export interface GameState {
   testResults: [string, boolean][];
   scoreText?: Phaser.GameObjects.Text;
   particles?: Phaser.GameObjects.Particles.ParticleEmitter;
+  rainbowEmitters?: Phaser.GameObjects.Particles.ParticleEmitter[];
+  chainReactionCount: number;
 }
 
 export const state: GameState = {
@@ -31,5 +33,6 @@ export const state: GameState = {
   score: 0,
   combo: 0,
   shardsCount: 0,
-  testResults: []
+  testResults: [],
+  chainReactionCount: 0
 };
