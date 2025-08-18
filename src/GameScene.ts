@@ -515,10 +515,9 @@ function tweenSwap(scene: Phaser.Scene, s1: Phaser.Physics.Matter.Image, s2: Pha
 }
 
 function getAcceleratingDelay(chainCount: number): number {
-  // Start at 1000ms, then 700ms, then 400ms, then 200ms for any more
-  const delays = [1000, 700, 400, 200];
-  const index = Math.min(chainCount - 1, delays.length - 1);
-  return delays[Math.max(0, index)];
+  // Use configurable chain delays
+  const index = Math.min(chainCount - 1, CONFIG.CHAIN_DELAYS.length - 1);
+  return CONFIG.CHAIN_DELAYS[Math.max(0, index)];
 }
 
 function triggerSlowMotion(scene: Phaser.Scene) {
@@ -869,7 +868,11 @@ function spawnShards(scene: Phaser.Scene, x: number, y: number, color: number) {
     shard.setAngularVelocity(Phaser.Math.FloatBetween(-0.25, 0.25));
     shard.setIgnoreGravity(false);
     state.shardsCount++;
-    scene.time.delayedCall(1500 + Math.random() * 800, () => shard.destroy());
+    
+    // Use configurable lifetime multiplier
+    const baseLifetime = 1500 + Math.random() * 800;
+    const adjustedLifetime = baseLifetime * CONFIG.SPARK_LIFETIME_MULTIPLIER;
+    scene.time.delayedCall(adjustedLifetime, () => shard.destroy());
   }
 }
 

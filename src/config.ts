@@ -11,7 +11,10 @@ export const CONFIG = {
   EXPLOSION_FORCE: 0.1, // Base explosion force strength
   EXPLOSION_RADIUS: 900, // Explosion effect radius in pixels
   SLOW_MOTION_SCALE: 0.10, // Time scale during slow motion (1/3rd speed)
-  SLOW_MOTION_DURATION: 800 // Duration of slow motion effect in milliseconds
+  SLOW_MOTION_DURATION: 800, // Duration of slow motion effect in milliseconds
+  SPARK_LIFETIME_MULTIPLIER: 5.0, // Multiplier for how long sparks stay on screen (1.0 = normal, 2.0 = twice as long)
+  // Chain reaction explosion delays (in milliseconds)
+  CHAIN_DELAYS: [0, 0, 0, 0] // Delays for 1st, 2nd, 3rd, 4th+ explosions in chain reactions
 };
 
 export const COLORS = [0xdc143c, 0x1e90ff, 0x32cd32, 0xffd700, 0xff1493, 0xff8c00]; // Deep red, blue, green, gold, hot pink, orange
