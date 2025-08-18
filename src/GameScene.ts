@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { CONFIG, COLORS, WILD_COLOR, WILD_TYPE, W, H, BOARD_W, BOARD_H, BOARD_X, BOARD_Y } from './config';
+import { CONFIG, COLORS, WILD_COLOR, WILD_TYPE, COLLISION, W, H, BOARD_W, BOARD_H, BOARD_X, BOARD_Y } from './config';
 import { state } from './state';
 import { inBounds, xyToCell, cellToXY, key, parseKey } from './utils';
 import { createsMatchAt, findMatches, swapCells, tweenTo, findSpecialCombinations, SpecialMatch } from './boardLogic';
@@ -17,6 +17,18 @@ export class GameScene extends Phaser.Scene {
   create() {
     // World bounds for shards
     this.matter.world.setBounds(0, 0, W, H, 32, true, true, true, true);
+    
+    // Set collision category for world boundaries
+    if (this.matter.world.walls) {
+      Object.values(this.matter.world.walls).forEach(wall => {
+        if (wall && wall.body) {
+          wall.body.collisionFilter = {
+            category: COLLISION.WORLD,
+            mask: COLLISION.SHARD | COLLISION.GEM
+          };
+        }
+      });
+    }
     
     // Set physics simulation speed
     this.matter.world.engine.timing.timeScale = CONFIG.TIME_SCALE;
@@ -54,24 +66,7 @@ export class GameScene extends Phaser.Scene {
     buildParticleTextures(this);
     ensureTexture(this, 'shard');
 
-    // Particle manager - we'll create multiple emitters for rainbow colors
-    const rainbowEmitters: Phaser.GameObjects.Particles.ParticleEmitter[] = [];
-    for(let i = 0; i < 12; i++) {
-      const emitter = this.add.particles(0, 0, `spark-${i}`, {
-        speed: { min: 80, max: 350 },
-        scale: { start: 0.9, end: 0 },
-        alpha: { start: 1, end: 0 },
-        lifespan: { min: 800, max: 1200 },
-        quantity: 1,
-        angle: { min: 0, max: 360 },
-        blendMode: 'ADD',
-        gravity: { x: 0, y: 50 }
-      });
-      emitter.stop();
-      rainbowEmitters.push(emitter);
-    }
-    state.particles = rainbowEmitters[0]; // Store first one for compatibility
-    state.rainbowEmitters = rainbowEmitters;
+    // Remove rainbow particle emitters - now using rainbow shards instead
 
 
     // Initialize board
@@ -128,11 +123,9 @@ export class GameScene extends Phaser.Scene {
             }
           }
           
-          // Update wild gem glow position if it exists
-          if (tile.type === WILD_TYPE) {
-            const updateGlow = tile.sprite.getData('updateGlow');
-            if (updateGlow) updateGlow();
-          }
+          // Update glow position
+          const glowUpdateFunction = tile.sprite.getData('glowUpdateFunction');
+          if (glowUpdateFunction) glowUpdateFunction();
         }
       }
     }
@@ -279,20 +272,7 @@ function buildTileTextures(scene: Phaser.Scene) {
 }
 
 function buildParticleTextures(scene: Phaser.Scene) {
-  // Create rainbow colored spark textures
-  const rainbowColors = [0xff0000, 0xff8000, 0xffff00, 0x80ff00, 0x00ff00, 0x00ff80, 0x00ffff, 0x0080ff, 0x0000ff, 0x8000ff, 0xff00ff, 0xff0080];
-  
-  rainbowColors.forEach((color, index) => {
-    const key = `spark-${index}`;
-    if (!scene.textures.exists(key)) {
-      const g1 = scene.add.graphics();
-      g1.fillStyle(color, 1);
-      g1.fillCircle(8, 8, 8);
-      g1.generateTexture(key, 16, 16);
-      g1.destroy();
-    }
-  });
-
+  // Only create shard texture - rainbow colors are applied via tinting
   if (!scene.textures.exists('shard')) {
     const g2 = scene.add.graphics();
     g2.fillStyle(0xffffff, 1);
@@ -336,19 +316,27 @@ function makeTileSprite(scene: Phaser.Scene, c: number, r: number, type: number)
   const { x, y } = cellToXY(c, r);
   
   // Create physics body for the gem - use individual damping for air friction too
-  const baseFrictionAir = 0.15; // Increased base friction so variation is more noticeable
+  const baseFrictionAir = 0.15;
   const gemDampingVariation = (Math.random() - 0.5) * CONFIG.DAMPING_VARIATION;
   const gemIndividualDampingFactor = Math.max(0, Math.min(1, CONFIG.DAMPING_FACTOR + gemDampingVariation));
   const adjustedFrictionAir = baseFrictionAir * gemIndividualDampingFactor;
   
+  // Create physics sprite first
   const s = scene.matter.add.image(x, y, key, undefined, {
     isStatic: false,
     frictionAir: adjustedFrictionAir,
     friction: 0.001,
     restitution: 0.5,
     density: 0.001,
-    isSensor: true  // Turn off collision between gems
+    // Set up collision categories: gems collide with shards but not other gems
+    collisionFilter: {
+      category: COLLISION.GEM,
+      mask: COLLISION.SHARD | COLLISION.WORLD  // Collide with shards and world boundaries
+    }
   }).setOrigin(0.5).setScale(1);
+  
+  // Add 3D effects as overlays on top of the physics sprite
+  add3DEffectsToGem(scene, s, type);
   
   s.setInteractive();
   s.setData('c', c);
@@ -356,35 +344,61 @@ function makeTileSprite(scene: Phaser.Scene, c: number, r: number, type: number)
   s.setData('targetX', x);
   s.setData('targetY', y);
   s.setData('individualDampingFactor', gemIndividualDampingFactor);
-  
-  // Add subtle glow effect to each gem
-  const glow = scene.add.graphics();
-  const glowColor = COLORS[type];
-  glow.fillStyle(glowColor, 0.2);
-  glow.fillCircle(x, y, CONFIG.TILE * 0.6);
-  glow.setBlendMode(Phaser.BlendModes.ADD);
-  glow.setDepth(5);
-  
-  // Animate the glow
-  scene.tweens.add({
-    targets: glow,
-    alpha: { from: 0.1, to: 0.3 },
-    scaleX: { from: 0.8, to: 1.2 },
-    scaleY: { from: 0.8, to: 1.2 },
-    duration: 2000 + Math.random() * 1000,
-    yoyo: true,
-    repeat: -1,
-    ease: 'Sine.inOut'
-  });
-  
-  s.setData('glow', glow);
   s.setDepth(10);
-  
-  // Physics bodies will naturally rotate from explosion forces
-  // No need for artificial rotation tweens
   
   return s;
 }
+
+function add3DEffectsToGem(scene: Phaser.Scene, sprite: Phaser.Physics.Matter.Image, type: number) {
+  // Add subtle rotating glow effect
+  const glowSize = CONFIG.TILE * 0.9;
+  const glow = scene.add.graphics();
+  
+  if (type === WILD_TYPE) {
+    // Rainbow pulsing glow for wild gems
+    const rainbowColors = [0xff0000, 0xff8000, 0xffff00, 0x80ff00, 0x00ff00, 0x00ffff, 0x0080ff, 0x8000ff];
+    let colorIndex = 0;
+    
+    scene.time.addEvent({
+      delay: 200,
+      callback: () => {
+        glow.clear();
+        glow.fillStyle(rainbowColors[colorIndex], 0.3);
+        glow.fillCircle(0, 0, glowSize / 2);
+        glow.setBlendMode(Phaser.BlendModes.ADD);
+        colorIndex = (colorIndex + 1) % rainbowColors.length;
+      },
+      loop: true
+    });
+  } else {
+    // Regular colored glow
+    glow.fillStyle(COLORS[type], 0.2);
+    glow.fillCircle(0, 0, glowSize / 2);
+    glow.setBlendMode(Phaser.BlendModes.ADD);
+    
+    // Animate the glow
+    scene.tweens.add({
+      targets: glow,
+      alpha: { from: 0.1, to: 0.4 },
+      scale: { from: 0.8, to: 1.2 },
+      duration: 2000 + Math.random() * 1000,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut'
+    });
+  }
+  
+  glow.setDepth(sprite.depth - 1);
+  
+  // Store glow reference for position updates and cleanup
+  sprite.setData('glow', glow);
+  sprite.setData('glowUpdateFunction', () => {
+    if (glow && sprite) {
+      glow.setPosition(sprite.x, sprite.y);
+    }
+  });
+}
+
 
 function onPointerDown(scene: Phaser.Scene, pointer: Phaser.Input.Pointer) {
   if (state.inputLocked) return;
@@ -713,15 +727,6 @@ function explodeTile(scene: Phaser.Scene, r: number, c: number) {
   if (!t || !t.sprite) return;
   const { x, y } = cellToXY(c, r);
 
-  if(state.rainbowEmitters) {
-    // Emit rainbow colored particles
-    for(let i = 0; i < 14; i++) {
-      const randomEmitterIndex = Math.floor(Math.random() * state.rainbowEmitters.length);
-      const emitter = state.rainbowEmitters[randomEmitterIndex];
-      emitter.emitParticleAt(x, y, 1);
-    }
-  }
-
   const gemColor = t.type === WILD_TYPE ? WILD_COLOR : COLORS[t.type as number];
   spawnShards(scene, x, y, gemColor);
 
@@ -836,9 +841,25 @@ function createExplosionEffect(scene: Phaser.Scene, x: number, y: number, color:
 }
 
 function spawnShards(scene: Phaser.Scene, x: number, y: number, color: number) {
+  // Rainbow colors for shards
+  const rainbowColors = [0xff0000, 0xff8000, 0xffff00, 0x80ff00, 0x00ff00, 0x00ff80, 0x00ffff, 0x0080ff, 0x0000ff, 0x8000ff, 0xff00ff, 0xff0080];
+  
   for (let i = 0; i < CONFIG.SHARDS_PER_TILE; i++) {
-    const shard = scene.matter.add.image(x, y, 'shard', undefined, { restitution: 0.9, frictionAir: 0.02, slop: 0.5 });
-    shard.setTint(color);
+    const shard = scene.matter.add.image(x, y, 'shard', undefined, { 
+      restitution: 0.9, 
+      frictionAir: 0.02, 
+      slop: 0.5,
+      // Set up collision categories: shards collide with gems and world but not other shards
+      collisionFilter: {
+        category: COLLISION.SHARD,
+        mask: COLLISION.GEM | COLLISION.WORLD  // Collide with gems and world boundaries, not other shards
+      }
+    });
+    
+    // Use random rainbow color instead of gem color
+    const randomColor = rainbowColors[Math.floor(Math.random() * rainbowColors.length)];
+    shard.setTint(randomColor);
+    
     shard.setScale(Phaser.Math.FloatBetween(0.7, 1.3));
     shard.setBounce(0.9);
     shard.setFriction(0.005, 0.0001, 0.0001);

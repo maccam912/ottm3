@@ -4,7 +4,7 @@ export const CONFIG = {
   TILE: 72,
   TYPES: 6,
   GRAVITY_Y: 1.2,
-  SHARDS_PER_TILE: 6,
+  SHARDS_PER_TILE: 50,
   DAMPING_FACTOR: 0.3,  // 0.0 = no damping, 1.0 = full damping
   DAMPING_VARIATION: 0.1, // Random variation range around base damping factor
   TIME_SCALE: 1.0,      // Physics simulation speed multiplier
@@ -17,6 +17,13 @@ export const CONFIG = {
 export const COLORS = [0xdc143c, 0x1e90ff, 0x32cd32, 0xffd700, 0xff1493, 0xff8c00]; // Deep red, blue, green, gold, hot pink, orange
 export const WILD_COLOR = 0xffffff; // White for wild gems
 export const WILD_TYPE = -1; // Special type for wild gems
+
+// Collision categories for Matter.js physics
+export const COLLISION = {
+  GEM: 0x0001,    // Gems
+  SHARD: 0x0002,  // Particle shards
+  WORLD: 0x0004   // World boundaries
+};
 
 export const W = 900;
 export const H = 700;

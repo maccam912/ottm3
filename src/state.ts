@@ -22,7 +22,6 @@ export interface GameState {
   testResults: [string, boolean][];
   scoreText?: Phaser.GameObjects.Text;
   particles?: Phaser.GameObjects.Particles.ParticleEmitter;
-  rainbowEmitters?: Phaser.GameObjects.Particles.ParticleEmitter[];
   chainReactionCount: number;
 }
 
