@@ -29,6 +29,9 @@ export const CONFIG = {
   TIME_SCALE: 1.0,      // Physics simulation speed multiplier
   EXPLOSION_FORCE: 0.1, // Base explosion force strength
   EXPLOSION_RADIUS: 900, // Explosion effect radius in pixels
+  EXPLOSION_FORCE_MATCH3: 0.03, // Minimal explosion for match-3
+  EXPLOSION_FORCE_MATCH4: 0.06, // Minor explosion for match-4
+  EXPLOSION_FORCE_BOMB: 0.1, // Normal explosion for bomb activation
   SLOW_MOTION_SCALE: 0.10, // Time scale during slow motion (1/3rd speed)
   SLOW_MOTION_DURATION: 800, // Duration of slow motion effect in milliseconds
   SPARK_LIFETIME_MULTIPLIER: 5.0, // Multiplier for how long sparks stay on screen (1.0 = normal, 2.0 = twice as long)
@@ -39,6 +42,8 @@ export const CONFIG = {
 export const COLORS = [0xdc143c, 0x1e90ff, 0x32cd32, 0xffd700, 0xff1493, 0xff8c00]; // Deep red, blue, green, gold, hot pink, orange
 export const WILD_COLOR = 0xffffff; // White for wild gems
 export const WILD_TYPE = -1; // Special type for wild gems
+export const BOMB_COLOR = 0x000000; // Black for bomb gems
+export const BOMB_TYPE = -2; // Special type for bomb gems
 
 // Collision categories for Matter.js physics
 export const COLLISION = {

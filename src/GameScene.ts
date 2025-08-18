@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { CONFIG, COLORS, WILD_COLOR, WILD_TYPE, COLLISION, W, H, BOARD_W, BOARD_H, BOARD_X, BOARD_Y } from './config';
+import { CONFIG, COLORS, WILD_COLOR, WILD_TYPE, BOMB_COLOR, BOMB_TYPE, COLLISION, W, H, BOARD_W, BOARD_H, BOARD_X, BOARD_Y } from './config';
 import { state } from './state';
 import { inBounds, xyToCell, cellToXY, key, parseKey } from './utils';
 import { createsMatchAt, findMatches, swapCells, tweenTo, findSpecialCombinations, SpecialMatch } from './boardLogic';
@@ -270,6 +270,48 @@ function buildTileTextures(scene: Phaser.Scene) {
     g.generateTexture(wildKey, s, s);
     g.destroy();
   }
+  
+  // Create bomb gem texture
+  const bombKey = 'gem-bomb';
+  if (!scene.textures.exists(bombKey)) {
+    const g = scene.add.graphics();
+    const s = CONFIG.TILE * 0.78;
+    const r = 16;
+    
+    // Create bomb gem with black center and red/orange accents
+    g.fillStyle(0x000000, 0.3);
+    g.fillCircle(s / 2 + 2, s / 2 + 2, s / 2);
+    
+    // Main bomb body
+    g.fillStyle(BOMB_COLOR, 0.9);
+    g.fillRoundedRect((s - (s * 0.86)) / 2, (s - (s * 0.86)) / 2, s * 0.86, s * 0.86, r);
+    
+    // Add red/orange danger accents
+    g.lineStyle(3, 0xff0000, 0.8);
+    g.strokeRoundedRect((s - (s * 0.86)) / 2, (s - (s * 0.86)) / 2, s * 0.86, s * 0.86, r);
+    
+    // Add fuse line effect
+    g.lineStyle(2, 0xff8000, 0.9);
+    g.lineBetween(s * 0.7, s * 0.3, s * 0.8, s * 0.2);
+    
+    // Add danger sparkles in red/orange
+    const bombColors = [0xff0000, 0xff4000, 0xff8000, 0xffff00];
+    const bombSparkleCount = 6;
+    
+    for (let sparkle = 0; sparkle < bombSparkleCount; sparkle++) {
+      const bombColor = bombColors[sparkle % bombColors.length];
+      g.fillStyle(bombColor, 0.9);
+      
+      const sparkleX = (s * 0.2) + Math.random() * (s * 0.6);
+      const sparkleY = (s * 0.2) + Math.random() * (s * 0.6);
+      const sparkleSize = 1.5 + Math.random() * 2;
+      
+      drawSparkle(g, sparkleX, sparkleY, sparkleSize);
+    }
+    
+    g.generateTexture(bombKey, s, s);
+    g.destroy();
+  }
 }
 
 function drawSparkle(graphics: Phaser.GameObjects.Graphics, x: number, y: number, size: number) {
@@ -337,7 +379,7 @@ function initBoard(scene: Phaser.Scene) {
 }
 
 function makeTileSprite(scene: Phaser.Scene, c: number, r: number, type: number) {
-  const key = type === WILD_TYPE ? 'gem-wild' : 'gem-' + type;
+  const key = type === WILD_TYPE ? 'gem-wild' : type === BOMB_TYPE ? 'gem-bomb' : 'gem-' + type;
   const { x, y } = cellToXY(c, r);
   
   // Create physics body for the gem - use individual damping for air friction too
@@ -379,7 +421,23 @@ function add3DEffectsToGem(scene: Phaser.Scene, sprite: Phaser.Physics.Matter.Im
   const glowSize = CONFIG.TILE * 0.9;
   const glow = scene.add.graphics();
   
-  if (type === WILD_TYPE) {
+  if (type === BOMB_TYPE) {
+    // Pulsing red/orange glow for bomb gems
+    const bombColors = [0xff0000, 0xff4000, 0xff8000];
+    let colorIndex = 0;
+    
+    scene.time.addEvent({
+      delay: 150,
+      callback: () => {
+        glow.clear();
+        glow.fillStyle(bombColors[colorIndex], 0.4);
+        glow.fillCircle(0, 0, glowSize / 2);
+        glow.setBlendMode(Phaser.BlendModes.ADD);
+        colorIndex = (colorIndex + 1) % bombColors.length;
+      },
+      loop: true
+    });
+  } else if (type === WILD_TYPE) {
     // Rainbow pulsing glow for wild gems
     const rainbowColors = [0xff0000, 0xff8000, 0xffff00, 0x80ff00, 0x00ff00, 0x00ffff, 0x0080ff, 0x8000ff];
     let colorIndex = 0;
@@ -472,17 +530,32 @@ function swapAttempt(scene: Phaser.Scene, a: {c: number, r: number}, b: {c: numb
   tweenSwap(scene, aTile.sprite!, bTile.sprite!, () => {
     swapCells(state.board, a, b);
     
-    // Check if one of the gems is a wild gem
+    // Check if one of the gems is a bomb gem
     const aTileAfterSwap = state.board[a.r][a.c];
     const bTileAfterSwap = state.board[b.r][b.c];
     
-    if (aTileAfterSwap.type === WILD_TYPE && bTileAfterSwap.type !== null && bTileAfterSwap.type !== WILD_TYPE) {
+    if (aTileAfterSwap.type === BOMB_TYPE) {
+      // Bomb gem was swapped - explode it
+      deselectTile(scene, aTile);
+      state.selected = null;
+      activateBombGem(scene, a);
+      return;
+    } else if (bTileAfterSwap.type === BOMB_TYPE) {
+      // Bomb gem was swapped - explode it
+      deselectTile(scene, aTile);
+      state.selected = null;
+      activateBombGem(scene, b);
+      return;
+    }
+    
+    // Check if one of the gems is a wild gem
+    if (aTileAfterSwap.type === WILD_TYPE && bTileAfterSwap.type !== null && bTileAfterSwap.type !== WILD_TYPE && bTileAfterSwap.type !== BOMB_TYPE) {
       // Wild gem was swapped with a regular gem
       deselectTile(scene, aTile);
       state.selected = null;
       activateWildGem(scene, a, bTileAfterSwap.type);
       return;
-    } else if (bTileAfterSwap.type === WILD_TYPE && aTileAfterSwap.type !== null && aTileAfterSwap.type !== WILD_TYPE) {
+    } else if (bTileAfterSwap.type === WILD_TYPE && aTileAfterSwap.type !== null && aTileAfterSwap.type !== WILD_TYPE && aTileAfterSwap.type !== BOMB_TYPE) {
       // Wild gem was swapped with a regular gem
       deselectTile(scene, aTile);
       state.selected = null;
@@ -574,12 +647,28 @@ function resolveMatches(scene: Phaser.Scene, matches: Match[]) {
   scene.cameras.main.flash(120, 255, 255, 255);
   scene.cameras.main.shake(160, intensity);
 
-  clearList.forEach(({ r, c }) => explodeTile(scene, r, c));
+  // Determine shard multiplier based on largest match length
+  const maxMatchLength = Math.max(...matches.map(m => m.len));
+  let shardsMultiplier = 0.6; // Minimal shards for match-3
   
-  // Apply explosion forces to nearby gems
+  if (maxMatchLength >= 4) {
+    shardsMultiplier = 0.8; // Minor increase for match-4+
+  }
+  
+  clearList.forEach(({ r, c }) => explodeTile(scene, r, c, shardsMultiplier));
+  
+  // Apply explosion forces to nearby gems - adjust force based on match length
   clearList.forEach(({ r, c }) => {
     const { x: blastX, y: blastY } = cellToXY(c, r);
-    applyExplosionForce(scene, blastX, blastY, CONFIG.EXPLOSION_RADIUS, CONFIG.EXPLOSION_FORCE);
+    // Determine explosion force based on largest match length
+    const maxMatchLength = Math.max(...matches.map(m => m.len));
+    let explosionForce = CONFIG.EXPLOSION_FORCE_MATCH3; // Default minimal for match-3
+    
+    if (maxMatchLength >= 4) {
+      explosionForce = CONFIG.EXPLOSION_FORCE_MATCH4; // Minor explosion for match-4+
+    }
+    
+    applyExplosionForce(scene, blastX, blastY, CONFIG.EXPLOSION_RADIUS, explosionForce);
   });
 
   // Trigger slow motion effect right after explosions
@@ -616,15 +705,18 @@ function resolveSpecialMatches(scene: Phaser.Scene, specials: SpecialMatch[]) {
       }
     }
     
-    // Create a wild gem at the target position
+    // Create a bomb or wild gem at the target position based on the combination type
     scene.time.delayedCall(200, () => {
       if (state.board[special.targetPos.r] && state.board[special.targetPos.c]) {
-        const wildSprite = makeTileSprite(scene, special.targetPos.c, special.targetPos.r, WILD_TYPE);
-        wildSprite.setData('originalType', special.gemType);
-        state.board[special.targetPos.r][special.targetPos.c] = { type: WILD_TYPE, sprite: wildSprite };
+        const gemType = special.createsBomb ? BOMB_TYPE : WILD_TYPE;
+        const newSprite = makeTileSprite(scene, special.targetPos.c, special.targetPos.r, gemType);
+        newSprite.setData('originalType', special.gemType);
+        state.board[special.targetPos.r][special.targetPos.c] = { type: gemType, sprite: newSprite };
         
-        // Add special glow effect to wild gem
-        addWildGemGlow(scene, wildSprite);
+        // Add special glow effect
+        if (gemType === WILD_TYPE) {
+          addWildGemGlow(scene, newSprite);
+        }
       }
     });
   }
@@ -682,6 +774,123 @@ function addWildGemGlow(scene: Phaser.Scene, sprite: Phaser.Physics.Matter.Image
   };
   
   sprite.setData('updateGlow', updateGlow);
+}
+
+function activateBombGem(scene: Phaser.Scene, bombPos: {r: number, c: number}) {
+  const bomb = state.board[bombPos.r][bombPos.c];
+  if (!bomb || bomb.type !== BOMB_TYPE) return;
+  
+  // Get the 8 surrounding positions + the bomb itself
+  const positions: {r: number, c: number}[] = [];
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      const r = bombPos.r + dr;
+      const c = bombPos.c + dc;
+      if (r >= 0 && r < CONFIG.ROWS && c >= 0 && c < CONFIG.COLS) {
+        positions.push({r, c});
+      }
+    }
+  }
+  
+  // Check for chain reactions with other bombs and wilds
+  const chainsToExplode: {r: number, c: number}[] = [];
+  const wildsToActivate: {pos: {r: number, c: number}, targetType: number}[] = [];
+  
+  positions.forEach(pos => {
+    const tile = state.board[pos.r][pos.c];
+    if (tile && tile.type === BOMB_TYPE && !(pos.r === bombPos.r && pos.c === bombPos.c)) {
+      chainsToExplode.push(pos);
+    } else if (tile && tile.type === WILD_TYPE) {
+      // Find most common gem type on board for wild activation
+      const gemCounts: {[type: number]: number} = {};
+      for (let r = 0; r < CONFIG.ROWS; r++) {
+        for (let c = 0; c < CONFIG.COLS; c++) {
+          const boardTile = state.board[r][c];
+          if (boardTile && boardTile.type !== null && boardTile.type >= 0 && boardTile.type < CONFIG.TYPES) {
+            gemCounts[boardTile.type] = (gemCounts[boardTile.type] || 0) + 1;
+          }
+        }
+      }
+      
+      // Find most common type (break ties randomly)
+      let maxCount = 0;
+      const maxTypes: number[] = [];
+      Object.entries(gemCounts).forEach(([type, count]) => {
+        if (count > maxCount) {
+          maxCount = count;
+          maxTypes.length = 0;
+          maxTypes.push(parseInt(type));
+        } else if (count === maxCount) {
+          maxTypes.push(parseInt(type));
+        }
+      });
+      
+      if (maxTypes.length > 0) {
+        const randomType = maxTypes[Math.floor(Math.random() * maxTypes.length)];
+        wildsToActivate.push({pos, targetType: randomType});
+      }
+    }
+  });
+  
+  // Explode all tiles in the 3x3 area with normal bomb explosion shards
+  positions.forEach(pos => {
+    if (state.board[pos.r][pos.c]?.sprite) {
+      explodeTile(scene, pos.r, pos.c, 1.0); // Normal explosion for bombs
+    }
+  });
+  
+  // Apply explosion forces from bomb center
+  const { x: blastX, y: blastY } = cellToXY(bombPos.c, bombPos.r);
+  applyExplosionForce(scene, blastX, blastY, CONFIG.EXPLOSION_RADIUS, CONFIG.EXPLOSION_FORCE_BOMB);
+  
+  // Trigger slow motion effect
+  triggerSlowMotion(scene);
+  
+  // Calculate score
+  const tilesDestroyed = positions.filter(pos => state.board[pos.r][pos.c]?.type !== null).length;
+  const add = Math.floor(tilesDestroyed * 20 * Math.max(1, state.combo * 0.8));
+  state.score += add;
+  if(state.scoreText) state.scoreText.setText(`Score ${state.score}`);
+  
+  // Screen effects
+  scene.cameras.main.flash(180, 255, 100, 0);
+  scene.cameras.main.shake(200, 0.012);
+  
+  // Handle chain reactions and wild activations after a delay
+  scene.time.delayedCall(250, () => {
+    // Activate chain reaction bombs
+    chainsToExplode.forEach(chainPos => {
+      scene.time.delayedCall(100, () => {
+        activateBombGem(scene, chainPos);
+      });
+    });
+    
+    // Activate wilds that were hit
+    wildsToActivate.forEach(({pos, targetType}) => {
+      scene.time.delayedCall(150, () => {
+        activateWildGem(scene, pos, targetType);
+      });
+    });
+    
+    // Drop tiles and check for matches after all explosions
+    const finalDelay = Math.max(300, chainsToExplode.length * 100 + wildsToActivate.length * 150);
+    scene.time.delayedCall(finalDelay, () => {
+      dropTiles(scene, () => {
+        const nextSpecials = findSpecialCombinations(state.board);
+        const nextMatches = findMatches(state.board);
+        
+        if (nextSpecials.length > 0) {
+          resolveSpecialMatches(scene, nextSpecials);
+        } else if (nextMatches.length > 0) {
+          resolveMatches(scene, nextMatches);
+        } else {
+          state.combo = 0;
+          state.chainReactionCount = 0;
+          state.inputLocked = false;
+        }
+      });
+    });
+  });
 }
 
 function activateWildGem(scene: Phaser.Scene, wildPos: {r: number, c: number}, targetType: number) {
@@ -746,13 +955,13 @@ function activateWildGem(scene: Phaser.Scene, wildPos: {r: number, c: number}, t
   });
 }
 
-function explodeTile(scene: Phaser.Scene, r: number, c: number) {
+function explodeTile(scene: Phaser.Scene, r: number, c: number, shardsMultiplier: number = 1) {
   const t = state.board[r][c];
   if (!t || !t.sprite) return;
   const { x, y } = cellToXY(c, r);
 
-  const gemColor = t.type === WILD_TYPE ? WILD_COLOR : COLORS[t.type as number];
-  spawnShards(scene, x, y, gemColor);
+  const gemColor = t.type === WILD_TYPE ? WILD_COLOR : t.type === BOMB_TYPE ? BOMB_COLOR : COLORS[t.type as number];
+  spawnShards(scene, x, y, gemColor, shardsMultiplier);
 
   // Create spectacular explosion effect
   createExplosionEffect(scene, x, y, gemColor);
@@ -864,11 +1073,12 @@ function createExplosionEffect(scene: Phaser.Scene, x: number, y: number, color:
   });
 }
 
-function spawnShards(scene: Phaser.Scene, x: number, y: number, color: number) {
+function spawnShards(scene: Phaser.Scene, x: number, y: number, color: number, shardsMultiplier: number = 1) {
   // Rainbow colors for shards
   const rainbowColors = [0xff0000, 0xff8000, 0xffff00, 0x80ff00, 0x00ff00, 0x00ff80, 0x00ffff, 0x0080ff, 0x0000ff, 0x8000ff, 0xff00ff, 0xff0080];
   
-  for (let i = 0; i < CONFIG.SHARDS_PER_TILE; i++) {
+  const shardCount = Math.floor(CONFIG.SHARDS_PER_TILE * shardsMultiplier);
+  for (let i = 0; i < shardCount; i++) {
     const shard = scene.matter.add.image(x, y, 'shard', undefined, { 
       restitution: 0.9, 
       frictionAir: 0.02, 

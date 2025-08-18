@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { CONFIG, WILD_TYPE } from './config';
+import { CONFIG, WILD_TYPE, BOMB_TYPE } from './config';
 import { Match, Tile } from './state';
 
 export function createsMatchAt(board: Tile[][], r: number, c: number, type: number): boolean {
@@ -100,6 +100,7 @@ export interface SpecialMatch {
   positions: {r: number, c: number}[];
   targetPos: {r: number, c: number};
   gemType: number;
+  createsBomb: boolean; // true for 4-matches and squares, false for 5+ matches (wilds)
 }
 
 export function findSpecialCombinations(board: Tile[][]): SpecialMatch[] {
@@ -110,7 +111,7 @@ export function findSpecialCombinations(board: Tile[][]): SpecialMatch[] {
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const tile = board[r][c];
-      if (!tile || tile.type === null || tile.type === WILD_TYPE) continue;
+      if (!tile || tile.type === null || tile.type === WILD_TYPE || tile.type === BOMB_TYPE) continue;
       
       const type = tile.type;
       
@@ -125,7 +126,8 @@ export function findSpecialCombinations(board: Tile[][]): SpecialMatch[] {
             type: 'four_row',
             positions: Array.from({length: 4}, (_, i) => ({r, c: c + i})),
             targetPos: {r, c: c + 1},
-            gemType: type
+            gemType: type,
+            createsBomb: true
           });
         }
       }
@@ -141,7 +143,8 @@ export function findSpecialCombinations(board: Tile[][]): SpecialMatch[] {
             type: 'four_row',
             positions: Array.from({length: 4}, (_, i) => ({r: r + i, c})),
             targetPos: {r: r + 1, c},
-            gemType: type
+            gemType: type,
+            createsBomb: true
           });
         }
       }
@@ -156,7 +159,8 @@ export function findSpecialCombinations(board: Tile[][]): SpecialMatch[] {
             type: 'square',
             positions: [{r, c}, {r, c: c + 1}, {r: r + 1, c}, {r: r + 1, c: c + 1}],
             targetPos: {r, c},
-            gemType: type
+            gemType: type,
+            createsBomb: true
           });
         }
       }
@@ -172,7 +176,8 @@ export function findSpecialCombinations(board: Tile[][]): SpecialMatch[] {
             type: 'five_row',
             positions: Array.from({length: 5}, (_, i) => ({r, c: c + i})),
             targetPos: {r, c: c + 2},
-            gemType: type
+            gemType: type,
+            createsBomb: false
           });
         }
       }
@@ -188,7 +193,8 @@ export function findSpecialCombinations(board: Tile[][]): SpecialMatch[] {
             type: 'five_row',
             positions: Array.from({length: 5}, (_, i) => ({r: r + i, c})),
             targetPos: {r: r + 2, c},
-            gemType: type
+            gemType: type,
+            createsBomb: false
           });
         }
       }
@@ -205,7 +211,8 @@ export function findSpecialCombinations(board: Tile[][]): SpecialMatch[] {
             type: 'l_shape',
             positions: [{r, c}, {r, c: c + 1}, {r, c: c + 2}, {r: r + 1, c}, {r: r + 2, c}],
             targetPos: {r, c},
-            gemType: type
+            gemType: type,
+            createsBomb: false
           });
         }
         
@@ -219,7 +226,8 @@ export function findSpecialCombinations(board: Tile[][]): SpecialMatch[] {
             type: 'l_shape',
             positions: [{r, c}, {r, c: c + 1}, {r, c: c + 2}, {r: r + 1, c: c + 2}, {r: r + 2, c: c + 2}],
             targetPos: {r, c: c + 2},
-            gemType: type
+            gemType: type,
+            createsBomb: false
           });
         }
         
@@ -233,7 +241,8 @@ export function findSpecialCombinations(board: Tile[][]): SpecialMatch[] {
             type: 'l_shape',
             positions: [{r, c}, {r: r + 1, c}, {r: r + 2, c}, {r: r + 2, c: c + 1}, {r: r + 2, c: c + 2}],
             targetPos: {r: r + 2, c},
-            gemType: type
+            gemType: type,
+            createsBomb: false
           });
         }
         
@@ -247,7 +256,8 @@ export function findSpecialCombinations(board: Tile[][]): SpecialMatch[] {
             type: 'l_shape',
             positions: [{r, c: c + 2}, {r: r + 1, c: c + 2}, {r: r + 2, c: c + 2}, {r: r + 2, c: c + 1}, {r: r + 2, c}],
             targetPos: {r: r + 2, c: c + 2},
-            gemType: type
+            gemType: type,
+            createsBomb: false
           });
         }
       }
@@ -264,7 +274,8 @@ export function findSpecialCombinations(board: Tile[][]): SpecialMatch[] {
             type: 't_shape',
             positions: [{r, c}, {r, c: c + 1}, {r, c: c + 2}, {r: r - 1, c: c + 1}, {r: r + 1, c: c + 1}],
             targetPos: {r, c: c + 1},
-            gemType: type
+            gemType: type,
+            createsBomb: false
           });
         }
       }
@@ -280,7 +291,8 @@ export function findSpecialCombinations(board: Tile[][]): SpecialMatch[] {
             type: 't_shape',
             positions: [{r, c}, {r: r + 1, c}, {r: r + 2, c}, {r: r + 1, c: c - 1}, {r: r + 1, c: c + 1}],
             targetPos: {r: r + 1, c},
-            gemType: type
+            gemType: type,
+            createsBomb: false
           });
         }
       }
