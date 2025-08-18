@@ -18,8 +18,8 @@ function calculateTileSize(cols: number, rows: number, viewportW: number, viewpo
 }
 
 export const CONFIG = {
-  COLS: 10,
-  ROWS: 10,
+  COLS: 20,
+  ROWS: 20,
   get TILE() { return calculateTileSize(this.COLS, this.ROWS, W, H); },
   TYPES: 6,
   GRAVITY_Y: 1.2,
