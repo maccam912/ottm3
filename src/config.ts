@@ -1,5 +1,5 @@
-export const W = 900;
-export const H = 700;
+export const W = 1080;
+export const H = 1920;
 
 // Calculate dynamic tile size to fit viewport
 function calculateTileSize(cols: number, rows: number, viewportW: number, viewportH: number): number {
