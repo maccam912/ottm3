@@ -18,13 +18,13 @@ function calculateTileSize(cols: number, rows: number, viewportW: number, viewpo
 }
 
 export const CONFIG = {
-  COLS: 20,
-  ROWS: 20,
+  COLS: 10,
+  ROWS: 10,
   get TILE() { return calculateTileSize(this.COLS, this.ROWS, W, H); },
   TYPES: 6,
   GRAVITY_Y: 1.2,
   SHARDS_PER_TILE: 50,
-  DAMPING_FACTOR: 0.3,  // 0.0 = no damping, 1.0 = full damping
+  DAMPING_FACTOR: 0.4,  // 0.0 = no damping, 1.0 = full damping
   DAMPING_VARIATION: 0.1, // Random variation range around base damping factor
   TIME_SCALE: 1.0,      // Physics simulation speed multiplier
   EXPLOSION_FORCE: 0.1, // Base explosion force strength
