@@ -200,17 +200,19 @@ function buildTileTextures(scene: Phaser.Scene) {
     g.fillStyle(COLORS[i], 0.9);
     g.fillRoundedRect((s - (s * 0.86)) / 2, (s - (s * 0.86)) / 2, s * 0.86, s * 0.86, r);
     
-    // Inner facet reflections
-    g.fillStyle(COLORS[i], 0.7);
-    g.fillRoundedRect((s - (s * 0.7)) / 2, (s - (s * 0.7)) / 2, s * 0.7, s * 0.7, r * 0.8);
+    // Add random sparkles instead of reflections
+    g.fillStyle(0xffffff, 0.8);
+    const sparkleCount = 5 + Math.floor(Math.random() * 6); // 5 to 10 sparkles
     
-    // Highlight reflections
-    g.fillStyle(0xffffff, 0.6);
-    g.fillEllipse(s * 0.3, s * 0.25, s * 0.3, s * 0.15);
-    
-    // Secondary highlight
-    g.fillStyle(0xffffff, 0.4);
-    g.fillEllipse(s * 0.6, s * 0.4, s * 0.15, s * 0.1);
+    for (let sparkle = 0; sparkle < sparkleCount; sparkle++) {
+      // Random position within the gem bounds
+      const sparkleX = (s * 0.2) + Math.random() * (s * 0.6);
+      const sparkleY = (s * 0.2) + Math.random() * (s * 0.6);
+      const sparkleSize = 1 + Math.random() * 2; // Size between 1-3 pixels
+      
+      // Draw a small star shape
+      drawSparkle(g, sparkleX, sparkleY, sparkleSize);
+    }
     
     // Prismatic edge effect
     g.lineStyle(2, 0xffffff, 0.8);
@@ -249,26 +251,49 @@ function buildTileTextures(scene: Phaser.Scene) {
       g.strokePath();
     }
     
-    // Add star pattern in center
-    g.fillStyle(0x000000, 0.6);
-    const starPoints = 8;
-    const outerRadius = s * 0.2;
-    const innerRadius = s * 0.12;
-    g.beginPath();
-    for (let i = 0; i < starPoints * 2; i++) {
-      const angle = (i * Math.PI) / starPoints;
-      const radius = i % 2 === 0 ? outerRadius : innerRadius;
-      const x = s/2 + Math.cos(angle) * radius;
-      const y = s/2 + Math.sin(angle) * radius;
-      if (i === 0) g.moveTo(x, y);
-      else g.lineTo(x, y);
+    // Add rainbow sparkles for wild gem
+    const wildSparkleCount = 8 + Math.floor(Math.random() * 4); // 8 to 12 sparkles for wild gems
+    
+    for (let sparkle = 0; sparkle < wildSparkleCount; sparkle++) {
+      // Use rainbow colors for wild gem sparkles
+      const rainbowColor = rainbowColors[sparkle % rainbowColors.length];
+      g.fillStyle(rainbowColor, 0.9);
+      
+      // Random position within the gem bounds
+      const sparkleX = (s * 0.2) + Math.random() * (s * 0.6);
+      const sparkleY = (s * 0.2) + Math.random() * (s * 0.6);
+      const sparkleSize = 2 + Math.random() * 3; // Slightly larger sparkles for wild gems
+      
+      drawSparkle(g, sparkleX, sparkleY, sparkleSize);
     }
-    g.closePath();
-    g.fillPath();
     
     g.generateTexture(wildKey, s, s);
     g.destroy();
   }
+}
+
+function drawSparkle(graphics: Phaser.GameObjects.Graphics, x: number, y: number, size: number) {
+  // Draw a 4-pointed star sparkle
+  graphics.beginPath();
+  
+  // Star points
+  const points = [
+    { x: x, y: y - size },        // Top
+    { x: x + size * 0.3, y: y - size * 0.3 }, // Top-right inner
+    { x: x + size, y: y },        // Right
+    { x: x + size * 0.3, y: y + size * 0.3 }, // Bottom-right inner
+    { x: x, y: y + size },        // Bottom
+    { x: x - size * 0.3, y: y + size * 0.3 }, // Bottom-left inner
+    { x: x - size, y: y },        // Left
+    { x: x - size * 0.3, y: y - size * 0.3 }  // Top-left inner
+  ];
+  
+  graphics.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) {
+    graphics.lineTo(points[i].x, points[i].y);
+  }
+  graphics.closePath();
+  graphics.fillPath();
 }
 
 function buildParticleTextures(scene: Phaser.Scene) {
