@@ -1,12 +1,12 @@
 {
-  "name": "app",
-  "version": "1.0.0",
-  "description": "",
+  "name": "ottm3",
+  "version": "2.0.0",
+  "description": "Over The Top Match 3 — a calm, deeply satisfying 2.5D match-3 built on Babylon.js with a bespoke soft-body physics engine and procedural audio.",
   "main": "dist/main.js",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "jest"
   },
@@ -14,7 +14,12 @@
     "type": "git",
     "url": "git+https://github.com/maccam912/ottm3.git"
   },
-  "keywords": [],
+  "keywords": [
+    "match-3",
+    "babylonjs",
+    "soft-body",
+    "game"
+  ],
   "author": "",
   "license": "ISC",
   "bugs": {
@@ -22,7 +27,7 @@
   },
   "homepage": "https://github.com/maccam912/ottm3#readme",
   "dependencies": {
-    "phaser": "^3.90.0"
+    "@babylonjs/core": "^9.12.1"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
