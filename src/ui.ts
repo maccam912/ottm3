@@ -15,7 +15,7 @@ export class UI {
     hud.className = 'hud';
     hud.innerHTML = `
       <div class="hud-top">
-        <div class="brand">OVER&nbsp;THE&nbsp;TOP<span>MATCH&nbsp;3</span></div>
+        <div class="brand">OVER&nbsp;THE&nbsp;TOP<span>GRAVITY&nbsp;WELLS</span></div>
         <button class="mute" aria-label="Toggle sound">♪</button>
       </div>
       <div class="score-wrap">

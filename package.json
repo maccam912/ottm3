@@ -1,7 +1,7 @@
 {
   "name": "ottm3",
   "version": "2.0.0",
-  "description": "Over The Top Match 3 — a calm, deeply satisfying 2.5D match-3 built on Babylon.js with a bespoke soft-body physics engine and procedural audio.",
+  "description": "Over The Top: Gravity Wells — a 2.5D match-3 set in deep space, built on Babylon.js with a bespoke rigid-body physics engine (forces, impulses, torque, gravity wells), supernova particle effects and procedural audio.",
   "main": "dist/main.js",
   "type": "module",
   "scripts": {

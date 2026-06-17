@@ -170,6 +170,7 @@ export class Game {
     const vb = this.views.get(cb.id)!;
 
     audio.swap(this.pan(b.c));
+    this.sm.shake(CONFIG.SHAKE.swap);
     swap(this.grid, a, b);
     va.moveTo(b.r, b.c);
     vb.moveTo(a.r, a.c);
@@ -200,15 +201,16 @@ export class Game {
       let seed: Pos[];
       if (aColor && bColor) {
         seed = this.allPositions(); // double rainbow -> clear the board
-        this.fx.flash(0.7);
+        this.fx.flash(0.85);
+        this.sm.shake(CONFIG.SHAKE.big);
       } else {
         const colorPos = aColor ? a : b;
         const partner = aColor ? cb : ca;
         seed = this.positionsOfColor(partner.color);
         seed.push(colorPos);
+        this.sm.shake(CONFIG.SHAKE.detonate);
       }
       audio.detonate();
-      this.sm.shake(0.25);
       await this.resolveLoop(seed, null);
       return true;
     }
@@ -257,6 +259,7 @@ export class Game {
 
   private async applyClear(cleared: Pos[], spawns: MatchResult['spawns'], level: number): Promise<void> {
     let detonations = 0;
+    const blasts: { x: number; y: number; scale: number }[] = [];
 
     // Pop every cleared gem.
     const clearPromises: Promise<void>[] = [];
@@ -266,15 +269,22 @@ export class Game {
       const view = this.views.get(cell.id);
       if (!view) continue;
       const isSpecial = cell.kind !== GemKind.Normal;
+      const wp = view.worldPos();
       if (isSpecial) {
         detonations++;
-        this.fx.shockwave(view.worldPos(), cell.color, cell.kind === GemKind.Bomb ? 2.0 : 3.2);
+        const sc = cell.kind === GemKind.Bomb ? 1.5 : 1.25;
+        this.fx.supernova(wp, cell.color, sc);
+        blasts.push({ x: wp.x, y: wp.y, scale: sc });
+      } else {
+        this.fx.burst(wp, cell.color, 1);
       }
-      this.fx.burst(view.worldPos(), cell.color, isSpecial ? 1.6 : 1);
       this.views.delete(cell.id);
       this.grid[p.r][p.c] = null;
       clearPromises.push(view.clear());
     }
+
+    // Real blast waves: shove and spin every surviving gem near a detonation.
+    for (const b of blasts) for (const v of this.views.values()) v.knock(b.x, b.y, b.scale);
 
     // Scoring rewards both size and cascade depth.
     const points = Math.round(
@@ -284,7 +294,9 @@ export class Game {
     audio.match(level, cleared.length, this.pan(cleared[0]?.c ?? CONFIG.COLS / 2));
     if (detonations > 0) {
       audio.detonate();
-      this.sm.shake(Math.min(0.4, 0.12 + detonations * 0.05));
+      this.sm.shake(Math.min(CONFIG.SHAKE.big, CONFIG.SHAKE.detonate + detonations * 0.08));
+    } else {
+      this.sm.shake(CONFIG.SHAKE.match * Math.min(1, cleared.length / 4));
     }
 
     // Spawn the freshly created special gems where the matches were made.
