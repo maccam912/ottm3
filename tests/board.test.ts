@@ -1,133 +1,202 @@
-import { describe, it, expect } from '@jest/globals';
-import { findMatches, toBoard, wouldSwapCreateMatch } from '../src/boardLogic';
-import { state } from '../src/state';
-import { createsMatchAt } from '../src/boardLogic';
-import Phaser from 'phaser';
+import { describe, it, expect, beforeEach } from '@jest/globals';
+import {
+  _resetIds,
+  makeCell,
+  makeGrid,
+  findRuns,
+  findSquares,
+  hasMatch,
+  resolveBoard,
+  expandActivations,
+  collapseAndRefill,
+  wouldSwapMatch,
+  hasAvailableMove,
+  findHint,
+} from '../src/board';
+import { GemKind, Grid } from '../src/types';
 
-// Mock scene for initBoard
-const mockScene = {
-    add: {
-        image: () => ({
-            setOrigin: () => ({
-                setScale: () => ({
-                    setInteractive: () => ({
-                        setData: () => ({
-                            setDepth: () => ({
-                                angle: 0
-                            })
-                        })
-                    })
-                })
-            })
-        }),
-        tween: () => {}
-    },
-    tweens: {
-        add: () => {}
-    }
+// Build a grid from a colour matrix; -2 means "empty hole" for collapse tests.
+function grid(rows: number[][]): Grid {
+  return rows.map((row) =>
+    row.map((color) => (color < 0 && color === -2 ? null : makeCell(color)))
+  );
 }
 
-function initBoard(scene: any) {
-    state.board = [];
-    for (let r = 0; r < 8; r++) {
-      state.board[r] = [];
-      for (let c = 0; c < 8; c++) {
-        let type;
-        do {
-          type = Phaser.Math.Between(0, 5);
-        } while (createsMatchAt(state.board, r, c, type));
-        const sprite = {};
-        state.board[r][c] = { type, sprite: sprite as any };
-      }
-    }
-  }
+// Deterministic RNG for reproducible board generation.
+function seeded(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
 
-describe('Match-3 Logic', () => {
-  it('should detect horizontal matches', () => {
-    const b1 = toBoard([
+beforeEach(() => _resetIds());
+
+describe('match finding', () => {
+  it('finds a horizontal run of 3', () => {
+    const g = grid([
       [0, 0, 0, 1, 2, 3, 4, 5],
       [1, 2, 3, 4, 5, 0, 1, 2],
       [2, 3, 4, 5, 0, 1, 2, 3],
-      [3, 4, 5, 0, 1, 2, 3, 4],
-      [4, 5, 0, 1, 2, 3, 4, 5],
-      [5, 0, 1, 2, 3, 4, 5, 0],
-      [0, 1, 2, 3, 4, 5, 0, 1],
-      [1, 2, 3, 4, 5, 0, 1, 2],
     ]);
-    const m1 = findMatches(b1);
-    expect(m1.some(m => m.dir === 'h' && m.len >= 3)).toBe(true);
+    const runs = findRuns(g, 3, 8);
+    expect(runs.some((r) => r.dir === 'h' && r.len === 3)).toBe(true);
   });
 
-  it('should detect vertical matches', () => {
-    const b2 = toBoard([
-      [0, 1, 2, 3, 4, 5, 0, 1],
-      [0, 2, 3, 4, 5, 0, 1, 2],
-      [0, 3, 4, 5, 0, 1, 2, 3],
-      [0, 4, 5, 0, 1, 2, 3, 4],
-      [4, 5, 0, 1, 2, 3, 4, 5],
-      [5, 0, 1, 2, 3, 4, 5, 0],
-      [0, 1, 2, 3, 4, 5, 0, 1],
-      [1, 2, 3, 4, 5, 0, 1, 2],
+  it('finds a vertical run of 4', () => {
+    const g = grid([
+      [0, 1, 2],
+      [0, 3, 4],
+      [0, 5, 1],
+      [0, 2, 3],
     ]);
-    const m2 = findMatches(b2);
-    expect(m2.some(m => m.dir === 'v' && m.len >= 3)).toBe(true);
+    const runs = findRuns(g, 4, 3);
+    expect(runs.some((r) => r.dir === 'v' && r.len === 4)).toBe(true);
   });
 
-  it('should determine if a swap would create a match', () => {
-    const b3 = toBoard([
-      [0, 1, 2, 3, 4, 5, 0, 1],
-      [1, 1, 2, 3, 4, 5, 0, 1],
-      [1, 2, 2, 3, 4, 5, 0, 1],
-      [3, 4, 5, 0, 1, 2, 3, 4],
-      [4, 5, 0, 1, 2, 3, 4, 5],
-      [5, 0, 1, 2, 3, 4, 5, 0],
-      [0, 1, 2, 3, 4, 5, 0, 1],
-      [1, 2, 3, 4, 5, 0, 1, 2],
+  it('does not treat a 2x2 block as a run', () => {
+    const g = grid([
+      [0, 0, 1],
+      [0, 0, 2],
+      [3, 4, 5],
     ]);
-    expect(wouldSwapCreateMatch(b3, { r: 1, c: 0 }, { r: 0, c: 0 }, 8, 8)).toBe(true);
+    expect(findRuns(g, 3, 3)).toHaveLength(0);
   });
 
-  it('should create an initial board with no matches', () => {
-    initBoard(mockScene);
-    const initialMatches = findMatches(state.board);
-    expect(initialMatches.length).toBe(0);
+  it('detects a 2x2 square explicitly', () => {
+    const g = grid([
+      [0, 0, 1],
+      [0, 0, 2],
+      [3, 4, 5],
+    ]);
+    expect(findSquares(g, 3, 3)).toHaveLength(1);
+    expect(hasMatch(g)).toBe(true);
   });
 });
 
-describe('createsMatchAt', () => {
-  it('should detect horizontal match [X, new, X]', () => {
-    const board = toBoard([[0, 1, 0]]);
-    expect(createsMatchAt(board, 0, 1, 0)).toBe(true);
-  });
-
-  it('should detect vertical match [X, new, X]', () => {
-    const board = toBoard([[0], [1], [0]]);
-    expect(createsMatchAt(board, 1, 0, 0)).toBe(true);
-  });
-
-  it('should detect horizontal match [X, X, new]', () => {
-    const board = toBoard([[0, 0, 1]]);
-    expect(createsMatchAt(board, 0, 2, 0)).toBe(true);
-  });
-
-  it('should detect vertical match [X, X, new]', () => {
-    const board = toBoard([[0], [0], [1]]);
-    expect(createsMatchAt(board, 2, 0, 0)).toBe(true);
-  });
-
-  it('should not create false positives', () => {
-    const board = toBoard([
-      [1, 2, 3],
-      [4, 5, 6],
-      [7, 8, 1]
+describe('special spawning', () => {
+  it('spawns a horizontal line gem from a 4-in-a-row', () => {
+    const g = grid([
+      [0, 0, 0, 0, 1, 2, 3, 4],
+      [1, 2, 3, 4, 5, 0, 1, 2],
+      [2, 3, 4, 5, 0, 1, 2, 3],
     ]);
-    expect(createsMatchAt(board, 1, 1, 0)).toBe(false);
+    const res = resolveBoard(g);
+    expect(res.cleared.length).toBe(4);
+    expect(res.spawns).toHaveLength(1);
+    expect(res.spawns[0].kind).toBe(GemKind.LineH);
   });
 
-  it('should not create false positives at edges', () => {
-    const board = toBoard([
+  it('spawns a bomb from a 2x2 square', () => {
+    const g = grid([
+      [0, 0, 1],
+      [0, 0, 2],
+      [3, 4, 5],
+    ]);
+    const res = resolveBoard(g);
+    expect(res.spawns.some((s) => s.kind === GemKind.Bomb)).toBe(true);
+  });
+
+  it('spawns a rainbow gem from a 5-in-a-row', () => {
+    const g = grid([
+      [0, 0, 0, 0, 0, 1, 2, 3],
+      [1, 2, 3, 4, 5, 0, 1, 2],
+      [2, 3, 4, 5, 0, 1, 2, 3],
+    ]);
+    const res = resolveBoard(g);
+    expect(res.spawns.some((s) => s.kind === GemKind.Color)).toBe(true);
+  });
+
+  it('spawns a bomb from an L/T intersection of 5', () => {
+    const g = grid([
+      [0, 0, 0, 1],
+      [0, 2, 3, 4],
+      [0, 5, 1, 2],
+    ]);
+    const res = resolveBoard(g);
+    expect(res.spawns.some((s) => s.kind === GemKind.Bomb)).toBe(true);
+  });
+});
+
+describe('special activation', () => {
+  it('a line gem clears its whole row', () => {
+    const g = grid([
+      [1, 2, 3, 4],
+      [5, 0, 1, 2],
+      [3, 4, 5, 0],
+    ]);
+    g[0][0] = makeCell(1, GemKind.LineH);
+    const cleared = expandActivations(g, [{ r: 0, c: 0 }], 3, 4);
+    expect(cleared).toHaveLength(4); // entire top row
+  });
+
+  it('a bomb clears a 3x3 area', () => {
+    const g = grid([
+      [1, 2, 3, 4],
+      [5, 0, 1, 2],
+      [3, 4, 5, 0],
+    ]);
+    g[1][1] = makeCell(0, GemKind.Bomb);
+    const cleared = expandActivations(g, [{ r: 1, c: 1 }], 3, 4);
+    expect(cleared.length).toBe(9);
+  });
+
+  it('chains when one special clears another', () => {
+    const g = grid([
+      [1, 2, 3, 4],
+      [5, 0, 1, 2],
+      [3, 4, 5, 0],
+    ]);
+    g[0][0] = makeCell(1, GemKind.LineH); // clears row 0
+    g[0][3] = makeCell(2, GemKind.LineV); // sits in row 0 -> fires its column
+    const cleared = expandActivations(g, [{ r: 0, c: 0 }], 3, 4);
+    // Whole top row (4) plus the rest of column 3 (2 more cells).
+    expect(cleared.length).toBe(6);
+  });
+});
+
+describe('gravity and refill', () => {
+  it('drops gems into holes and fills the top', () => {
+    const g = grid([
       [0, 1, 2],
+      [-2, 3, 4],
+      [-2, 5, 0],
     ]);
-    expect(createsMatchAt(board, 0, 0, 1)).toBe(false);
+    const { falls, spawned } = collapseAndRefill(g, seeded(7), 3, 3);
+    // Column 0 had one gem and two holes -> one fall + two new gems.
+    expect(g[2][0]).not.toBeNull();
+    expect(falls.length + spawned.length).toBeGreaterThan(0);
+    // Board is now completely full.
+    expect(g.every((row) => row.every((c) => c !== null))).toBe(true);
+  });
+});
+
+describe('move detection', () => {
+  it('detects a swap that would create a match', () => {
+    const g = grid([
+      [0, 1, 0],
+      [2, 0, 3],
+      [4, 5, 1],
+    ]);
+    // Swapping (1,1)=0 with (0,1)=1 makes the top row 0,0,0.
+    expect(wouldSwapMatch(g, { r: 1, c: 1 }, { r: 0, c: 1 })).toBe(true);
+  });
+
+  it('finds a hint when a move exists', () => {
+    const g = grid([
+      [0, 1, 0],
+      [2, 0, 3],
+      [4, 5, 1],
+    ]);
+    expect(findHint(g, 3, 3)).not.toBeNull();
+  });
+});
+
+describe('board generation', () => {
+  it('produces a full board with no initial matches and a legal move', () => {
+    const g = makeGrid(seeded(123));
+    expect(hasMatch(g)).toBe(false);
+    expect(hasAvailableMove(g)).toBe(true);
   });
 });

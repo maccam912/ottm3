@@ -1,59 +1,45 @@
-export const W = 1080;
-export const H = 1920;
-
-// Calculate dynamic tile size to fit viewport
-function calculateTileSize(cols: number, rows: number, viewportW: number, viewportH: number): number {
-  // Reserve space for UI elements (title, score, margins)
-  const reservedHeight = 150; // Title, score, and margins
-  const reservedWidth = 40;   // Side margins
-  
-  const availableWidth = viewportW - reservedWidth;
-  const availableHeight = viewportH - reservedHeight;
-  
-  // Calculate max tile size that fits both dimensions
-  const maxTileWidth = Math.floor(availableWidth / cols);
-  const maxTileHeight = Math.floor(availableHeight / rows);
-  
-  return Math.min(maxTileWidth, maxTileHeight);
-}
+// Central tuning knobs. Everything that affects feel lives here so the game
+// can be balanced in one place.
 
 export const CONFIG = {
-  COLS: 10,
-  ROWS: 10,
-  get TILE() { return calculateTileSize(this.COLS, this.ROWS, W, H); },
-  TYPES: 6,
-  GRAVITY_Y: 1.2,
-  SHARDS_PER_TILE: 50,
-  DAMPING_FACTOR: 0.4,  // 0.0 = no damping, 1.0 = full damping
-  DAMPING_VARIATION: 0.1, // Random variation range around base damping factor
-  TIME_SCALE: 1.0,      // Physics simulation speed multiplier
-  EXPLOSION_FORCE: 0.1, // Base explosion force strength
-  EXPLOSION_RADIUS: 900, // Explosion effect radius in pixels
-  EXPLOSION_FORCE_MATCH3: 0.03, // Minimal explosion for match-3
-  EXPLOSION_FORCE_MATCH4: 0.06, // Minor explosion for match-4
-  EXPLOSION_FORCE_BOMB: 0.1, // Normal explosion for bomb activation
-  SLOW_MOTION_SCALE: 0.10, // Time scale during slow motion (1/3rd speed)
-  SLOW_MOTION_DURATION: 800, // Duration of slow motion effect in milliseconds
-  SPARK_LIFETIME_MULTIPLIER: 5.0, // Multiplier for how long sparks stay on screen (1.0 = normal, 2.0 = twice as long)
-  // Chain reaction explosion delays (in milliseconds)
-  CHAIN_DELAYS: [0, 0, 0, 0] // Delays for 1st, 2nd, 3rd, 4th+ explosions in chain reactions
-};
+  COLS: 8,
+  ROWS: 8,
+  COLORS: 6,
 
-export const COLORS = [0xdc143c, 0x1e90ff, 0x32cd32, 0xffd700, 0xff1493, 0xff8c00]; // Deep red, blue, green, gold, hot pink, orange
-export const WILD_COLOR = 0xffffff; // White for wild gems
-export const WILD_TYPE = -1; // Special type for wild gems
-export const BOMB_COLOR = 0x000000; // Black for bomb gems
-export const BOMB_TYPE = -2; // Special type for bomb gems
+  // --- Timing (seconds) ---
+  SWAP_TIME: 0.18,
+  FALL_GRAVITY: 26, // world units / s^2 for the gem drop spring assist
+  CLEAR_STAGGER: 0.035, // delay between gems popping in a single match
+  CASCADE_SETTLE: 0.12, // pause between cascade steps
 
-// Collision categories for Matter.js physics
-export const COLLISION = {
-  GEM: 0x0001,    // Gems
-  SHARD: 0x0002,  // Particle shards
-  WORLD: 0x0004   // World boundaries
-};
+  // --- Soft-body spring feel ---
+  SPRING: {
+    stiffness: 220, // higher = snappier return
+    damping: 14, // higher = less wobble
+    landSquash: 0.42, // how much a gem squashes on landing (0..1)
+    selectPop: 0.18, // scale bump when a gem is selected
+    matchPop: 0.6, // squash impulse when a gem is about to clear
+  },
 
-// Board calculations using dynamic tile size
-export const BOARD_W = CONFIG.COLS * CONFIG.TILE;
-export const BOARD_H = CONFIG.ROWS * CONFIG.TILE;
-export const BOARD_X = Math.floor((W - BOARD_W) / 2);
-export const BOARD_Y = Math.floor((H - BOARD_H) / 2) + 20;
+  // --- Scoring ---
+  SCORE_PER_GEM: 30,
+  COMBO_BONUS: 0.5, // each cascade level multiplies score by (1 + level*bonus)
+
+  // --- Camera / scene ---
+  CAMERA_DISTANCE: 13.5,
+  CAMERA_TILT: 0.06, // gentle 2.5D tilt in radians
+} as const;
+
+/** Calm jewel palette — deliberately soft, slightly desaturated, with a hint
+ *  of luminance so the glow layer reads well. Index === gem colour id. */
+export const PALETTE: { base: [number, number, number]; glow: [number, number, number] }[] = [
+  { base: [0.93, 0.32, 0.39], glow: [1.0, 0.42, 0.5] }, // rose
+  { base: [0.36, 0.62, 0.96], glow: [0.5, 0.74, 1.0] }, // sky
+  { base: [0.42, 0.82, 0.55], glow: [0.55, 0.95, 0.68] }, // jade
+  { base: [0.98, 0.79, 0.36], glow: [1.0, 0.88, 0.5] }, // amber
+  { base: [0.74, 0.52, 0.96], glow: [0.85, 0.66, 1.0] }, // amethyst
+  { base: [0.40, 0.86, 0.90], glow: [0.55, 0.96, 1.0] }, // aqua
+];
+
+/** Rainbow / colourless gem accent. */
+export const RAINBOW_COLOR = -1;
