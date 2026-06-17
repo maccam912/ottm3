@@ -1,23 +1,36 @@
-# Over The Top Match 3
+# Over The Top: Gravity Wells
 
-A calm, deeply satisfying 2.5D match-3 — rebuilt from scratch on **Babylon.js**
-with a bespoke **soft-body spring** physics engine and fully **procedural
-audio**. No image or sound assets: every gem, particle, sparkle and chime is
-generated at runtime, so the whole game ships as one small static site.
+A 2.5D match-3 set adrift in deep space — built on **Babylon.js** with a bespoke
+**rigid-body physics** engine and fully **procedural audio**. No image or sound
+assets: every body, spark, supernova and chime is generated at runtime, so the
+whole game ships as one small static site.
+
+Every gem is a little **celestial body**. They spin, they get flung by blast
+waves, and they collapse into supernovae when they clear. The whole thing is
+tuned to feel physical and a touch dangerous — never tidy.
 
 🎮 **Play:** https://maccam912.github.io/ottm3/
 
 ## Feel
 
-- **Soft-body gems.** Every gem is driven by damped harmonic springs. They
-  squash on landing, pop when selected, swell before they clear, and breathe
-  gently at rest — all volume-preserving so it reads like real jelly.
-- **2.5D rendering.** Glossy PBR jewels under soft three-point lighting, a glow
-  layer for the special gems, bloom + vignette + film grain post-processing,
-  soft shadows, and a tranquil drifting-mote backdrop.
+- **Real physics.** A bespoke engine integrates genuine Newtonian motion every
+  frame: each body is spring-anchored to its grid cell but free to be knocked
+  off it by **impulses**, spun up with **torque**, and dragged around by
+  **gravity wells**. Detonations throw out debris chunks that are fully
+  simulated free bodies — velocity, drag, gravity and tumbling spin and all.
+- **Six distinct worlds.** The palette is six clearly separated hues — ember,
+  solar, verdant, plasma, violet and nebula — each a glossy sphere lit from a
+  hot core and wrapped in a Fresnel atmosphere that rims with its own colour.
+- **Supernovae.** Specials detonate in a blinding core flash, a storm of
+  sparks, expanding shockwaves and a spray of physical debris — and the blast
+  wave shoves and spins every surviving body nearby. The camera answers with a
+  trauma-based shake.
+- **Deep-space stage.** A nebula backdrop with a parallax starfield, drifting
+  coloured dust, the odd shooting star, and punchy bloom + chromatic-aberration
+  + vignette + grain post-processing.
 - **Procedural sound.** A major-pentatonic bell synth (so cascades are always
-  consonant), filtered-noise whooshes, warm detonations and an ambient pad —
-  all synthesised with the Web Audio API.
+  consonant), filtered-noise whooshes, deep gravitational-collapse detonations
+  and a spacious ambient drone — all synthesised with the Web Audio API.
 
 ## Special gems
 
@@ -53,17 +66,18 @@ logic so the rules can be unit-tested in plain Node.
 src/
   board.ts          pure match-3 rules (matches, squares, specials, gravity)
   specials → board  special-gem classification + activation expansion
-  physics.ts        soft-body spring engine (no external physics dependency)
+  physics.ts        bespoke rigid-body engine: springs, GemBody (forces /
+                    impulses / torque / gravity wells), SoftBody, Debris
   audio.ts          procedural Web Audio synth
-  config.ts         all tuning knobs + palette
+  config.ts         all tuning knobs + celestial palette
   game.ts           controller: input + swap→match→clear→collapse→cascade flow
   ui.ts             crisp HTML/CSS HUD overlay
   render/
-    scene.ts        Babylon engine, camera, lights, glow, post-processing
-    materials.ts    cached PBR jewel + emissive accent materials
-    gemMesh.ts      gem mesh + special-kind decorations
-    gemView.ts      per-gem mesh + soft-body view
-    effects.ts      sparkle bursts, shockwaves, flashes
+    scene.ts        Babylon engine, camera, lights, nebula + starfield, shake
+    materials.ts    cached PBR body + Fresnel-atmosphere + emissive materials
+    gemMesh.ts      gem mesh + cosmic special decorations (comet/star/galaxy)
+    gemView.ts      per-gem rigid body + soft-body deformation view
+    effects.ts      supernovae, spark storms, debris, shockwaves, flashes
 ```
 
 ## Develop

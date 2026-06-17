@@ -165,23 +165,47 @@ export class AudioEngine {
     this.bell(PENTATONIC[9], { gain: 0.1, release: 1.2, pan: pan - 0.1 });
   }
 
-  /** A special gem detonates — a deep, warm swell. */
+  /** A supernova detonates — a deep gravitational collapse: a sub-bass drop, a
+   *  filtered-noise shock, and a consonant bell over the top. */
   detonate(): void {
     if (!this.ctx || this.muted) return;
     const t = this.now();
-    const osc = this.ctx.createOscillator();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(180, t);
-    osc.frequency.exponentialRampToValueAtTime(60, t + 0.5);
-    const g = this.ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(0.3, t + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
-    osc.connect(g).connect(this.master);
-    osc.connect(g).connect(this.reverbSend);
-    osc.start(t);
-    osc.stop(t + 0.65);
-    this.bell(PENTATONIC[2], { gain: 0.16, release: 1.4 });
+
+    // Sub-bass plunge (the "weight" of the collapse).
+    const sub = this.ctx.createOscillator();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(160, t);
+    sub.frequency.exponentialRampToValueAtTime(38, t + 0.6);
+    const subG = this.ctx.createGain();
+    subG.gain.setValueAtTime(0.0001, t);
+    subG.gain.linearRampToValueAtTime(0.38, t + 0.02);
+    subG.gain.exponentialRampToValueAtTime(0.0001, t + 0.75);
+    sub.connect(subG).connect(this.master);
+    sub.connect(subG).connect(this.reverbSend);
+    sub.start(t);
+    sub.stop(t + 0.8);
+
+    // Noise shockwave, swept downward — the blast front.
+    const dur = 0.5;
+    const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * dur, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const filt = this.ctx.createBiquadFilter();
+    filt.type = 'lowpass';
+    filt.frequency.setValueAtTime(3200, t);
+    filt.frequency.exponentialRampToValueAtTime(180, t + dur);
+    const nG = this.ctx.createGain();
+    nG.gain.setValueAtTime(0.0001, t);
+    nG.gain.linearRampToValueAtTime(0.22, t + 0.015);
+    nG.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(filt).connect(nG).connect(this.master);
+    src.connect(nG).connect(this.reverbSend);
+    src.start(t);
+    src.stop(t + dur);
+
+    this.bell(PENTATONIC[2], { gain: 0.16, release: 1.5 });
   }
 
   /** Gentle "no" for an illegal move. */
@@ -189,12 +213,12 @@ export class AudioEngine {
     this.bell(PENTATONIC[0] * 0.97, { gain: 0.07, type: 'triangle', release: 0.25 });
   }
 
-  /** A soft ambient pad note, triggered occasionally for atmosphere. */
+  /** A slow, spacious drone, triggered occasionally — distant and cosmic. */
   ambientPad(): void {
     if (!this.ctx || this.muted) return;
-    const root = PENTATONIC[0];
-    [1, 1.5, 2].forEach((mult, i) =>
-      this.bell(root * mult, { gain: 0.04, type: 'sine', attack: 1.5, release: 4, pan: i - 1 })
+    const root = PENTATONIC[0] * 0.5; // an octave down for a deeper bed
+    [1, 1.5, 2, 3].forEach((mult, i) =>
+      this.bell(root * mult, { gain: 0.035, type: 'sine', attack: 2.4, release: 6, pan: (i - 1.5) * 0.6 })
     );
   }
 }
