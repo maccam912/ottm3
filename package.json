@@ -1,14 +1,16 @@
 {
   "name": "ottm3",
-  "version": "2.0.0",
-  "description": "Over The Top: Gravity Wells — a 2.5D match-3 set in deep space, built on Babylon.js with a bespoke rigid-body physics engine (forces, impulses, torque, gravity wells), supernova particle effects and procedural audio.",
-  "main": "dist/main.js",
+  "version": "3.0.0",
+  "description": "Glaze — an ultra-satisfying donut-shop match-3. Pure dopamine: cascades, crumbs, escalating pops. No gacha, no lives, no timers.",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "jest"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "bake": "tsx scripts/bake-assets.ts",
+    "smoke": "tsx scripts/smoke.ts"
   },
   "repository": {
     "type": "git",
@@ -16,25 +18,19 @@
   },
   "keywords": [
     "match-3",
-    "babylonjs",
-    "soft-body",
+    "phaser",
     "game"
   ],
-  "author": "",
   "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/maccam912/ottm3/issues"
-  },
-  "homepage": "https://github.com/maccam912/ottm3#readme",
   "dependencies": {
-    "@babylonjs/core": "^9.12.1"
+    "phaser": "^3.90.0"
   },
   "devDependencies": {
-    "@types/jest": "^30.0.0",
-    "jest": "^30.0.5",
-    "jest-environment-jsdom": "^30.0.5",
-    "ts-jest": "^29.4.1",
+    "@napi-rs/canvas": "^0.1.65",
+    "puppeteer-core": "^24.0.0",
+    "tsx": "^4.19.0",
     "typescript": "^5.9.2",
-    "vite": "^7.1.2"
+    "vite": "^7.1.2",
+    "vitest": "^3.2.0"
   }
 }
