@@ -37,10 +37,22 @@ jobs:
         with:
           path: './dist'
 
+      # Pages occasionally rejects a deployment with a transient
+      # "Deployment failed, try again later." — so try again.
       - name: Deploy to GitHub Pages
         id: deployment
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+
+      - name: Wait before retrying deployment
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 60
+
+      - name: Deploy to GitHub Pages (retry)
+        id: deployment-retry
+        if: steps.deployment.outcome == 'failure'
         uses: actions/deploy-pages@v4
 
       - name: Report URL
         run: |
-          echo "Game URL: ${{ steps.deployment.outputs.page_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "Game URL: ${{ steps.deployment.outputs.page_url || steps.deployment-retry.outputs.page_url }}" >> $GITHUB_STEP_SUMMARY
