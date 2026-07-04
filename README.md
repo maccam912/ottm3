@@ -21,6 +21,25 @@ which clears the entire board.
 - If you idle, a valid move wobbles gently. If the board deadlocks, it
   reshuffles itself ("FRESH DONUTS!"). The game never blocks you.
 
+## Helpers
+
+- **💡 Best move** — the solver simulates every legal move (cascades and chain
+  reactions included — the simulation clones the RNG state, so the prediction
+  is exact) and highlights the one worth the most points and powerups, with
+  the exact score it will earn.
+- **🔮 Setup hint** — two-move lookahead: highlights the gold move to play now
+  and the faint violet follow-up it sets up, each with its exact score. Play
+  the gold move and the violet combo is guaranteed.
+- **▶ Auto play** — endless self-playing mode: telegraphs the best move, plays
+  it, repeats forever. Tap ⏸ to take the wheel back.
+
+## Install as an app (PWA)
+
+Glaze is an installable PWA: open it in a mobile browser and use "Add to Home
+Screen" (iOS Safari) or the install prompt (Android Chrome). It launches
+fullscreen with no browser chrome, and after the first visit a service worker
+caches everything so it runs fully offline.
+
 ## Architecture
 
 ```

@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { Game } from "../../engine/game";
+import { Game, type MoveEval, type SetupMoveEval } from "../../engine/game";
 import type { Cell, Effect, PlacedPiece, Step } from "../../engine/types";
 import {
   ACCENTS,
@@ -31,6 +31,10 @@ declare global {
       best: () => number;
       isLocked: () => boolean;
       hint: () => [Cell, Cell] | null;
+      bestMove: () => MoveEval | null;
+      bestSetupMove: () => SetupMoveEval | null;
+      setAutoplay: (on: boolean) => void;
+      isAutoplay: () => boolean;
       swap: (a: Cell, b: Cell) => void;
       board: () => PlacedPiece[];
       viewCount: () => number;
@@ -49,6 +53,12 @@ export class GameScene extends Phaser.Scene {
   private selected: Cell | null = null;
   private dragStart: DragStart | null = null;
   private lastAction = 0;
+
+  private autoplay = false;
+  private autoBtn!: Phaser.GameObjects.Text;
+  /** Bumped on scene (re)create so a stale autoplay loop exits. */
+  private runToken = 0;
+  private bestMoveFx: Phaser.GameObjects.GameObject[] = [];
 
   private shownScore = 0;
   private best = 0;
@@ -72,6 +82,9 @@ export class GameScene extends Phaser.Scene {
     this.dragStart = null;
     this.shownScore = 0;
     this.lastMilestone = 0;
+    this.autoplay = false;
+    this.runToken++;
+    this.bestMoveFx = [];
     this.best = Number(localStorage.getItem("glaze.best") ?? 0);
 
     this.add.image(GAME_WIDTH / 2, GAME_HEIGHT / 2, "bg");
@@ -210,11 +223,52 @@ export class GameScene extends Phaser.Scene {
         this.scene.restart({ seed: (Math.random() * 2 ** 31) | 0 });
       },
     );
+
+    const hint = this.add
+      .text(44, 112, "💡", { fontSize: "34px" })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+    hint.on(
+      "pointerdown",
+      (_p: unknown, _x: unknown, _y: unknown, e: Phaser.Types.Input.EventData) => {
+        e.stopPropagation();
+        this.showBestMove();
+      },
+    );
+
+    const setup = this.add
+      .text(44, 178, "🔮", { fontSize: "34px" })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+    setup.on(
+      "pointerdown",
+      (_p: unknown, _x: unknown, _y: unknown, e: Phaser.Types.Input.EventData) => {
+        e.stopPropagation();
+        this.showSetupMove();
+      },
+    );
+
+    this.autoBtn = this.add
+      .text(GAME_WIDTH - 44, 112, "▶", {
+        fontFamily: FONT,
+        fontSize: "36px",
+        color: "#c9a68f",
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+    this.autoBtn.on(
+      "pointerdown",
+      (_p: unknown, _x: unknown, _y: unknown, e: Phaser.Types.Input.EventData) => {
+        e.stopPropagation();
+        this.toggleAutoplay();
+      },
+    );
   }
 
   private bindInput(): void {
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
       this.lastAction = this.time.now;
+      this.clearBestMoveFx();
       if (this.locked) return;
       const cell = this.cellAt(pointer.x, pointer.y);
       if (!cell) {
@@ -259,6 +313,12 @@ export class GameScene extends Phaser.Scene {
       best: () => this.best,
       isLocked: () => this.locked,
       hint: () => this.engine.hint(),
+      bestMove: () => this.engine.bestMove(),
+      bestSetupMove: () => this.engine.bestSetupMove(),
+      setAutoplay: (on) => {
+        if (on !== this.autoplay) this.toggleAutoplay();
+      },
+      isAutoplay: () => this.autoplay,
       swap: (a, b) => void this.doSwap(a, b),
       board: () => this.engine.board,
       viewCount: () => this.views.size,
@@ -302,10 +362,145 @@ export class GameScene extends Phaser.Scene {
 
   private async doSwap(a: Cell, b: Cell): Promise<void> {
     if (this.locked) return;
+    this.clearBestMoveFx();
     const steps = this.engine.swap(a, b);
     if (steps.length === 0) return;
     await this.replay(steps);
     this.afterMove();
+  }
+
+  // ------------------------------------------------------------------
+  // best move & autoplay
+  // ------------------------------------------------------------------
+
+  private clearBestMoveFx(): void {
+    for (const obj of this.bestMoveFx) obj.destroy();
+    this.bestMoveFx = [];
+  }
+
+  /** Pulsing rings + a shuttling dot + a score label for one suggested swap. */
+  private highlightSwap(
+    move: { a: Cell; b: Cell },
+    tint: number,
+    alpha: number,
+    label: string,
+  ): void {
+    for (const cell of [move.a, move.b]) {
+      const ring = this.add
+        .image(cellX(cell.c), cellY(cell.r), "ring")
+        .setTint(tint)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setScale(0.42)
+        .setAlpha(alpha);
+      this.fxLayer.add(ring);
+      this.tweens.add({
+        targets: ring,
+        scale: { from: 0.42, to: 0.56 },
+        alpha: { from: alpha, to: alpha * 0.5 },
+        duration: 420,
+        yoyo: true,
+        repeat: -1,
+        ease: "Sine.easeInOut",
+      });
+      this.bestMoveFx.push(ring);
+      this.viewAt(cell)?.wobble();
+    }
+
+    // A little donut-hole shuttles from a to b to show the swap direction.
+    const dot = this.add
+      .image(cellX(move.a.c), cellY(move.a.r), "particle_soft")
+      .setTint(tint)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setScale(0.55)
+      .setAlpha(alpha);
+    this.fxLayer.add(dot);
+    this.tweens.add({
+      targets: dot,
+      x: cellX(move.b.c),
+      y: cellY(move.b.r),
+      duration: 500,
+      repeat: -1,
+      repeatDelay: 160,
+      ease: "Sine.easeInOut",
+    });
+    this.bestMoveFx.push(dot);
+
+    const midX = (cellX(move.a.c) + cellX(move.b.c)) / 2;
+    const midY = (cellY(move.a.r) + cellY(move.b.r)) / 2;
+    const color = `#${tint.toString(16).padStart(6, "0")}`;
+    const text = this.add
+      .text(midX, midY - CELL * 0.8, label, {
+        fontFamily: FONT,
+        fontSize: "30px",
+        color,
+        stroke: "#1c0e14",
+        strokeThickness: 8,
+      })
+      .setOrigin(0.5)
+      .setShadow(0, 4, "#1c0e14", 8)
+      .setAlpha(Math.min(1, alpha + 0.1));
+    this.fxLayer.add(text);
+    this.bestMoveFx.push(text);
+  }
+
+  /** Highlight the highest-scoring move: pulsing rings + the predicted score. */
+  private showBestMove(): MoveEval | null {
+    if (this.locked) return null;
+    const best = this.engine.bestMove();
+    if (!best) return null;
+    this.clearBestMoveFx();
+    this.sfx.select();
+    this.highlightSwap(best, 0xfed013, 0.95, `+${best.score.toLocaleString()}`);
+    return best;
+  }
+
+  /**
+   * Highlight the two-move plan: the gold swap to play now, and the faint
+   * violet follow-up it sets up. The follow-up is exact — the simulation
+   * clones the RNG, so it knows what will refill — as long as you play the
+   * gold move first.
+   */
+  private showSetupMove(): SetupMoveEval | null {
+    if (this.locked) return null;
+    const plan = this.engine.bestSetupMove();
+    if (!plan) return null;
+    this.clearBestMoveFx();
+    this.sfx.select();
+    this.highlightSwap(plan, 0xfed013, 0.95, `1. +${plan.score.toLocaleString()}`);
+    this.highlightSwap(plan.next, 0xc9a1ff, 0.55, `2. +${plan.next.score.toLocaleString()}`);
+    return plan;
+  }
+
+  private toggleAutoplay(): void {
+    this.autoplay = !this.autoplay;
+    this.autoBtn.setText(this.autoplay ? "⏸" : "▶");
+    this.autoBtn.setColor(this.autoplay ? "#fed013" : "#c9a68f");
+    if (this.autoplay) {
+      this.banner("AUTO GLAZE!", 0xfed013, 44);
+      void this.autoplayLoop(this.runToken);
+    } else {
+      this.clearBestMoveFx();
+    }
+  }
+
+  /** Play the best move forever, with a brief telegraph before each swap. */
+  private async autoplayLoop(token: number): Promise<void> {
+    while (this.autoplay && token === this.runToken) {
+      if (this.locked) {
+        await this.delay(140);
+        continue;
+      }
+      const best = this.showBestMove();
+      if (!best) {
+        // The engine reshuffles deadlocks after moves, so this is transient.
+        await this.delay(400);
+        continue;
+      }
+      await this.delay(420);
+      if (!this.autoplay || token !== this.runToken || this.locked) continue;
+      await this.doSwap(best.a, best.b);
+      await this.delay(260);
+    }
   }
 
   private afterMove(): void {

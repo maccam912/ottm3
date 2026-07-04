@@ -26,6 +26,27 @@ interface Group {
 
 const BOMB_COLOR = -1;
 
+/** A fully-simulated candidate move, ranked by `bestMove()`. */
+export interface MoveEval {
+  a: Cell;
+  b: Cell;
+  /** Exact points this move will earn, cascades and chain reactions included. */
+  score: number;
+  /** How many special pieces (striped/wrapped/bomb) the move creates. */
+  specials: number;
+}
+
+/** Value of baking a special, for ranking moves ("points AND powerups"). */
+const SPECIAL_VALUE = 150;
+
+/** A two-move plan: the move to play now, and the follow-up it sets up. */
+export interface SetupMoveEval extends MoveEval {
+  /** The exact best follow-up move on the board this move leaves behind. */
+  next: MoveEval;
+  /** Combined points across both moves. */
+  totalScore: number;
+}
+
 /** Score constants — chunky, legible numbers. */
 const PIECE_SCORE = 20;
 const EFFECT_SCORE: Record<Effect["kind"], number> = {
@@ -127,6 +148,85 @@ export class Game {
   hint(): [Cell, Cell] | null {
     const moves = this.findMoves();
     return moves.length > 0 ? (moves[0] ?? null) : null;
+  }
+
+  /**
+   * Deep copy of the full game state, including RNG state — so a simulated
+   * move on the clone plays out exactly like the same move on the original.
+   */
+  clone(): Game {
+    const g = Object.create(Game.prototype) as Game;
+    const rng = mulberry32(0);
+    rng.setState(this.rng.getState());
+    Object.assign(g, {
+      cols: this.cols,
+      rows: this.rows,
+      colors: this.colors,
+      // Pieces are immutable (replaced, never mutated), so rows shallow-copy.
+      grid: this.grid.map((row) => [...row]),
+      rng,
+      nextId: this.nextId,
+      score: this.score,
+      movesMade: this.movesMade,
+    });
+    return g;
+  }
+
+  /**
+   * Simulate every valid move and return the one with the biggest payoff:
+   * exact resolved score (cascades included) plus a bonus per special created.
+   * Because the clone shares RNG state, the returned `score` is exactly what
+   * playing the move will earn.
+   */
+  bestMove(): MoveEval | null {
+    let best: MoveEval | null = null;
+    let bestValue = -Infinity;
+    for (const [a, b] of this.findMoves()) {
+      const sim = this.clone();
+      const steps = sim.swap(a, b);
+      let specials = 0;
+      for (const s of steps) {
+        if (s.type === "clear") specials += s.created.length;
+      }
+      const score = sim.score - this.score;
+      const value = score + specials * SPECIAL_VALUE;
+      if (value > bestValue) {
+        bestValue = value;
+        best = { a, b, score, specials };
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Two-move lookahead: simulate every valid move, then the best follow-up on
+   * each resulting board, and return the plan with the biggest combined
+   * payoff — the move that *sets up* the big combo. Exact for the same reason
+   * `bestMove()` is: clones carry the RNG state, so refills are predicted too.
+   */
+  bestSetupMove(): SetupMoveEval | null {
+    let best: SetupMoveEval | null = null;
+    let bestValue = -Infinity;
+    for (const [a, b] of this.findMoves()) {
+      const sim = this.clone();
+      const steps = sim.swap(a, b);
+      let specials = 0;
+      for (const s of steps) {
+        if (s.type === "clear") specials += s.created.length;
+      }
+      const score = sim.score - this.score;
+      // A resolved board always has a follow-up: deadlocks reshuffle, and the
+      // reshuffle draws from the cloned RNG, so even that is predicted.
+      const next = sim.bestMove();
+      if (!next) continue;
+      const value =
+        score + specials * SPECIAL_VALUE + next.score + next.specials * SPECIAL_VALUE;
+      if (value > bestValue) {
+        bestValue = value;
+        best = { a, b, score, specials, next, totalScore: score + next.score };
+      }
+    }
+    return best;
   }
 
   /**
