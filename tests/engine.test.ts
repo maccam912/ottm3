@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Game } from "../src/engine/game";
+import { mulberry32 } from "../src/engine/rng";
 import type { Special, Step } from "../src/engine/types";
 
 /** A neutral filler pattern with no matches and no accidental interactions. */
@@ -462,5 +463,78 @@ describe("full playthrough (the litmus test)", () => {
     const b = play();
     expect(a).toBe(b);
     expect(a).toBeGreaterThan(0);
+  });
+});
+
+describe("clone and bestMove (the solver)", () => {
+  it("rng state survives snapshot/restore", () => {
+    const a = mulberry32(42);
+    a();
+    a();
+    const b = mulberry32(0);
+    b.setState(a.getState());
+    expect([b(), b(), b()]).toEqual([a(), a(), a()]);
+  });
+
+  it("clone is a deep, independent copy", () => {
+    const game = new Game({ seed: 99 });
+    const copy = game.clone();
+    expect(copy.board).toEqual(game.board);
+
+    const move = game.hint();
+    expect(move).not.toBeNull();
+    if (!move) return;
+    copy.swap(move[0], move[1]);
+    // The original is untouched by the clone's move…
+    expect(game.score).toBe(0);
+    expect(game.movesMade).toBe(0);
+    assertSettled(game);
+    // …and the clone actually played it.
+    expect(copy.score).toBeGreaterThan(0);
+  });
+
+  it("bestMove predicts the exact score of playing it", () => {
+    for (const seed of [7, 123, 555, 90210]) {
+      const game = new Game({ seed });
+      for (let i = 0; i < 10; i++) {
+        const best = game.bestMove();
+        expect(best).not.toBeNull();
+        if (!best) break;
+        const before = game.score;
+        game.swap(best.a, best.b);
+        expect(game.score - before).toBe(best.score);
+      }
+    }
+  });
+
+  it("bestMove never picks worse points than the first-found move", () => {
+    const game = new Game({ seed: 31337 });
+    for (let i = 0; i < 20; i++) {
+      const best = game.bestMove();
+      const hint = game.hint();
+      expect(best).not.toBeNull();
+      expect(hint).not.toBeNull();
+      if (!best || !hint) break;
+      const sim = game.clone();
+      sim.swap(hint[0], hint[1]);
+      const hintScore = sim.score - game.score;
+      // Ranking is score + specials bonus, so pure score can only lose to a
+      // move that bakes more specials — which the bonus values at 150 each.
+      expect(best.score + best.specials * 150).toBeGreaterThanOrEqual(hintScore);
+      game.swap(best.a, best.b);
+    }
+  });
+
+  it("returns null on a board with no valid moves", () => {
+    // A verified deadlocked layout: no matches, and no swap creates one.
+    const layout = [
+      [3, 1, 2, 1],
+      [0, 1, 2, 0],
+      [2, 0, 3, 1],
+      [2, 3, 0, 2],
+    ];
+    const game = Game.fromColors(layout, { colors: 6 });
+    expect(game.findMoves().length).toBe(0);
+    expect(game.bestMove()).toBeNull();
   });
 });
