@@ -538,3 +538,49 @@ describe("clone and bestMove (the solver)", () => {
     expect(game.bestMove()).toBeNull();
   });
 });
+
+describe("bestSetupMove (two-move lookahead)", () => {
+  it("predicts both moves' exact scores", () => {
+    for (const seed of [7, 123, 90210]) {
+      const game = new Game({ seed });
+      for (let i = 0; i < 5; i++) {
+        const plan = game.bestSetupMove();
+        expect(plan).not.toBeNull();
+        if (!plan) break;
+        expect(plan.totalScore).toBe(plan.score + plan.next.score);
+
+        const s0 = game.score;
+        game.swap(plan.a, plan.b);
+        expect(game.score - s0).toBe(plan.score);
+
+        const s1 = game.score;
+        game.swap(plan.next.a, plan.next.b);
+        expect(game.score - s1).toBe(plan.next.score);
+      }
+    }
+  });
+
+  it("is at least as valuable over two moves as playing greedily", () => {
+    const value = (score: number, specials: number) => score + specials * 150;
+    for (const seed of [42, 31337]) {
+      const game = new Game({ seed });
+      const plan = game.bestSetupMove();
+      expect(plan).not.toBeNull();
+      if (!plan) continue;
+
+      // Greedy: best move now, then best move after it.
+      const sim = game.clone();
+      const greedy1 = sim.bestMove();
+      expect(greedy1).not.toBeNull();
+      if (!greedy1) continue;
+      sim.swap(greedy1.a, greedy1.b);
+      const greedy2 = sim.bestMove();
+      const greedyValue =
+        value(greedy1.score, greedy1.specials) +
+        (greedy2 ? value(greedy2.score, greedy2.specials) : 0);
+      const planValue =
+        value(plan.score, plan.specials) + value(plan.next.score, plan.next.specials);
+      expect(planValue).toBeGreaterThanOrEqual(greedyValue);
+    }
+  });
+});

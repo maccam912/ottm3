@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { Game, type MoveEval } from "../../engine/game";
+import { Game, type MoveEval, type SetupMoveEval } from "../../engine/game";
 import type { Cell, Effect, PlacedPiece, Step } from "../../engine/types";
 import {
   ACCENTS,
@@ -32,6 +32,7 @@ declare global {
       isLocked: () => boolean;
       hint: () => [Cell, Cell] | null;
       bestMove: () => MoveEval | null;
+      bestSetupMove: () => SetupMoveEval | null;
       setAutoplay: (on: boolean) => void;
       isAutoplay: () => boolean;
       swap: (a: Cell, b: Cell) => void;
@@ -235,6 +236,18 @@ export class GameScene extends Phaser.Scene {
       },
     );
 
+    const setup = this.add
+      .text(44, 178, "🔮", { fontSize: "34px" })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+    setup.on(
+      "pointerdown",
+      (_p: unknown, _x: unknown, _y: unknown, e: Phaser.Types.Input.EventData) => {
+        e.stopPropagation();
+        this.showSetupMove();
+      },
+    );
+
     this.autoBtn = this.add
       .text(GAME_WIDTH - 44, 112, "▶", {
         fontFamily: FONT,
@@ -301,6 +314,7 @@ export class GameScene extends Phaser.Scene {
       isLocked: () => this.locked,
       hint: () => this.engine.hint(),
       bestMove: () => this.engine.bestMove(),
+      bestSetupMove: () => this.engine.bestSetupMove(),
       setAutoplay: (on) => {
         if (on !== this.autoplay) this.toggleAutoplay();
       },
@@ -364,26 +378,25 @@ export class GameScene extends Phaser.Scene {
     this.bestMoveFx = [];
   }
 
-  /** Highlight the highest-scoring move: pulsing rings + the predicted score. */
-  private showBestMove(): MoveEval | null {
-    if (this.locked) return null;
-    const best = this.engine.bestMove();
-    if (!best) return null;
-    this.clearBestMoveFx();
-    this.sfx.select();
-
-    for (const cell of [best.a, best.b]) {
+  /** Pulsing rings + a shuttling dot + a score label for one suggested swap. */
+  private highlightSwap(
+    move: { a: Cell; b: Cell },
+    tint: number,
+    alpha: number,
+    label: string,
+  ): void {
+    for (const cell of [move.a, move.b]) {
       const ring = this.add
         .image(cellX(cell.c), cellY(cell.r), "ring")
-        .setTint(0xfed013)
+        .setTint(tint)
         .setBlendMode(Phaser.BlendModes.ADD)
         .setScale(0.42)
-        .setAlpha(0.95);
+        .setAlpha(alpha);
       this.fxLayer.add(ring);
       this.tweens.add({
         targets: ring,
         scale: { from: 0.42, to: 0.56 },
-        alpha: { from: 0.95, to: 0.5 },
+        alpha: { from: alpha, to: alpha * 0.5 },
         duration: 420,
         yoyo: true,
         repeat: -1,
@@ -395,16 +408,16 @@ export class GameScene extends Phaser.Scene {
 
     // A little donut-hole shuttles from a to b to show the swap direction.
     const dot = this.add
-      .image(cellX(best.a.c), cellY(best.a.r), "particle_soft")
-      .setTint(0xfed013)
+      .image(cellX(move.a.c), cellY(move.a.r), "particle_soft")
+      .setTint(tint)
       .setBlendMode(Phaser.BlendModes.ADD)
       .setScale(0.55)
-      .setAlpha(0.9);
+      .setAlpha(alpha);
     this.fxLayer.add(dot);
     this.tweens.add({
       targets: dot,
-      x: cellX(best.b.c),
-      y: cellY(best.b.r),
+      x: cellX(move.b.c),
+      y: cellY(move.b.r),
       duration: 500,
       repeat: -1,
       repeatDelay: 160,
@@ -412,22 +425,50 @@ export class GameScene extends Phaser.Scene {
     });
     this.bestMoveFx.push(dot);
 
-    const midX = (cellX(best.a.c) + cellX(best.b.c)) / 2;
-    const midY = (cellY(best.a.r) + cellY(best.b.r)) / 2;
-    const label = this.add
-      .text(midX, midY - CELL * 0.8, `+${best.score.toLocaleString()}`, {
+    const midX = (cellX(move.a.c) + cellX(move.b.c)) / 2;
+    const midY = (cellY(move.a.r) + cellY(move.b.r)) / 2;
+    const color = `#${tint.toString(16).padStart(6, "0")}`;
+    const text = this.add
+      .text(midX, midY - CELL * 0.8, label, {
         fontFamily: FONT,
         fontSize: "30px",
-        color: "#fed013",
+        color,
         stroke: "#1c0e14",
         strokeThickness: 8,
       })
       .setOrigin(0.5)
-      .setShadow(0, 4, "#1c0e14", 8);
-    this.fxLayer.add(label);
-    this.bestMoveFx.push(label);
+      .setShadow(0, 4, "#1c0e14", 8)
+      .setAlpha(Math.min(1, alpha + 0.1));
+    this.fxLayer.add(text);
+    this.bestMoveFx.push(text);
+  }
 
+  /** Highlight the highest-scoring move: pulsing rings + the predicted score. */
+  private showBestMove(): MoveEval | null {
+    if (this.locked) return null;
+    const best = this.engine.bestMove();
+    if (!best) return null;
+    this.clearBestMoveFx();
+    this.sfx.select();
+    this.highlightSwap(best, 0xfed013, 0.95, `+${best.score.toLocaleString()}`);
     return best;
+  }
+
+  /**
+   * Highlight the two-move plan: the gold swap to play now, and the faint
+   * violet follow-up it sets up. The follow-up is exact — the simulation
+   * clones the RNG, so it knows what will refill — as long as you play the
+   * gold move first.
+   */
+  private showSetupMove(): SetupMoveEval | null {
+    if (this.locked) return null;
+    const plan = this.engine.bestSetupMove();
+    if (!plan) return null;
+    this.clearBestMoveFx();
+    this.sfx.select();
+    this.highlightSwap(plan, 0xfed013, 0.95, `1. +${plan.score.toLocaleString()}`);
+    this.highlightSwap(plan.next, 0xc9a1ff, 0.55, `2. +${plan.next.score.toLocaleString()}`);
+    return plan;
   }
 
   private toggleAutoplay(): void {

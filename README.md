@@ -27,6 +27,9 @@ which clears the entire board.
   reactions included — the simulation clones the RNG state, so the prediction
   is exact) and highlights the one worth the most points and powerups, with
   the exact score it will earn.
+- **🔮 Setup hint** — two-move lookahead: highlights the gold move to play now
+  and the faint violet follow-up it sets up, each with its exact score. Play
+  the gold move and the violet combo is guaranteed.
 - **▶ Auto play** — endless self-playing mode: telegraphs the best move, plays
   it, repeats forever. Tap ⏸ to take the wheel back.
 

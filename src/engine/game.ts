@@ -39,6 +39,14 @@ export interface MoveEval {
 /** Value of baking a special, for ranking moves ("points AND powerups"). */
 const SPECIAL_VALUE = 150;
 
+/** A two-move plan: the move to play now, and the follow-up it sets up. */
+export interface SetupMoveEval extends MoveEval {
+  /** The exact best follow-up move on the board this move leaves behind. */
+  next: MoveEval;
+  /** Combined points across both moves. */
+  totalScore: number;
+}
+
 /** Score constants — chunky, legible numbers. */
 const PIECE_SCORE = 20;
 const EFFECT_SCORE: Record<Effect["kind"], number> = {
@@ -185,6 +193,37 @@ export class Game {
       if (value > bestValue) {
         bestValue = value;
         best = { a, b, score, specials };
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Two-move lookahead: simulate every valid move, then the best follow-up on
+   * each resulting board, and return the plan with the biggest combined
+   * payoff — the move that *sets up* the big combo. Exact for the same reason
+   * `bestMove()` is: clones carry the RNG state, so refills are predicted too.
+   */
+  bestSetupMove(): SetupMoveEval | null {
+    let best: SetupMoveEval | null = null;
+    let bestValue = -Infinity;
+    for (const [a, b] of this.findMoves()) {
+      const sim = this.clone();
+      const steps = sim.swap(a, b);
+      let specials = 0;
+      for (const s of steps) {
+        if (s.type === "clear") specials += s.created.length;
+      }
+      const score = sim.score - this.score;
+      // A resolved board always has a follow-up: deadlocks reshuffle, and the
+      // reshuffle draws from the cloned RNG, so even that is predicted.
+      const next = sim.bestMove();
+      if (!next) continue;
+      const value =
+        score + specials * SPECIAL_VALUE + next.score + next.specials * SPECIAL_VALUE;
+      if (value > bestValue) {
+        bestValue = value;
+        best = { a, b, score, specials, next, totalScore: score + next.score };
       }
     }
     return best;
