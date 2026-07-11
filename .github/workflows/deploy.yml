@@ -11,9 +11,17 @@ permissions:
   pages: write
   id-token: write
 
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url || steps.deployment-retry.outputs.page_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -21,21 +29,22 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+          cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Build
         run: npm run build
 
       - name: Setup Pages
-        uses: actions/configure-pages@v4
+        uses: actions/configure-pages@v5
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
-          path: './dist'
+          path: "./dist"
 
       # Pages occasionally rejects a deployment with a transient
       # "Deployment failed, try again later." — so try again.
@@ -55,4 +64,4 @@ jobs:
 
       - name: Report URL
         run: |
-          echo "Game URL: ${{ steps.deployment.outputs.page_url || steps.deployment-retry.outputs.page_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "Game URL: ${{ steps.deployment.outputs.page_url || steps.deployment-retry.outputs.page_url }}" >> "$GITHUB_STEP_SUMMARY"

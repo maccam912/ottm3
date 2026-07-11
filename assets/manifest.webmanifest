@@ -1,13 +1,17 @@
 {
-  "name": "Glaze — donut match-3",
-  "short_name": "Glaze",
-  "description": "An ultra-satisfying donut-shop match-3. No gacha, no lives, no timers.",
+  "id": "./",
+  "name": "OTTM3 — Over The Top Match 3",
+  "short_name": "OTTM3",
+  "description": "A neon cosmic match-3 jackpot of chain reactions, absurd powerup combinations, particles, shaders, shake, and escalating combo overload.",
+  "lang": "en-US",
+  "dir": "ltr",
   "start_url": "./",
   "scope": "./",
-  "display": "standalone",
+  "display": "fullscreen",
   "orientation": "portrait",
-  "background_color": "#2a1a22",
-  "theme_color": "#2a1a22",
+  "background_color": "#05000f",
+  "theme_color": "#16002e",
+  "categories": ["games", "entertainment"],
   "icons": [
     {
       "src": "img/icon-192.png",

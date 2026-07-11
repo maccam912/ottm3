@@ -8,7 +8,12 @@ const game = new Phaser.Game({
   parent: "game",
   width: GAME_WIDTH,
   height: GAME_HEIGHT,
-  backgroundColor: "#2a1a22",
+  backgroundColor: "#05000f",
+  render: {
+    antialias: true,
+    roundPixels: false,
+    powerPreference: "high-performance",
+  },
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
@@ -35,12 +40,11 @@ window.addEventListener("orientationchange", refreshUntilSettled);
 window.visualViewport?.addEventListener("resize", refreshUntilSettled);
 screen.orientation?.addEventListener("change", refreshUntilSettled);
 
-// Installable PWA: the service worker caches everything after first load so
-// the game runs fully offline. Skipped in dev — Vite serves fresh modules.
+// Installable PWA: production builds generate a revisioned manifest containing
+// every emitted asset, and the worker atomically precaches it for cold-offline
+// play. Skipped in dev so Vite always serves fresh modules.
 if ("serviceWorker" in navigator && import.meta.env.PROD) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch(() => {
-      // Offline support is a bonus; the game works fine without it.
-    });
+    void navigator.serviceWorker.register("./sw.js");
   });
 }

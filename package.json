@@ -1,7 +1,7 @@
 {
   "name": "ottm3",
   "version": "3.0.0",
-  "description": "Glaze — an ultra-satisfying donut-shop match-3. Pure dopamine: cascades, crumbs, escalating pops. No gacha, no lives, no timers.",
+  "description": "OTTM3 — Over The Top Match 3. A neon cosmic jackpot of cascades, powerup combinations, particles, shaders, shake, and escalating combo overload.",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +10,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "bake": "tsx scripts/bake-assets.ts",
+    "bake:icons": "tsx scripts/bake-icons.ts",
     "smoke": "tsx scripts/smoke.ts"
   },
   "repository": {
@@ -19,7 +20,9 @@
   "keywords": [
     "match-3",
     "phaser",
-    "game"
+    "game",
+    "pwa",
+    "offline-game"
   ],
   "license": "ISC",
   "dependencies": {

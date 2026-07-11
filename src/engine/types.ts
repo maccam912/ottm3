@@ -1,6 +1,29 @@
 /** Shared engine types. Pure data — no engine or renderer imports. */
 
-export type Special = "none" | "stripedH" | "stripedV" | "wrapped" | "bomb";
+export type Special =
+  | "none"
+  | "rocketH"
+  | "rocketV"
+  | "pulse"
+  | "nova"
+  | "prism"
+  | "singularity";
+
+/** Every bespoke two-powerup payoff understood by the engine and FX layer. */
+export type ComboKind =
+  | "rocket-parallel-h"
+  | "rocket-parallel-v"
+  | "rocket-cross"
+  | "rocket-pulse"
+  | "rocket-nova"
+  | "rocket-prism"
+  | "pulse-pulse"
+  | "pulse-nova"
+  | "pulse-prism"
+  | "nova-nova"
+  | "nova-prism"
+  | "prism-prism"
+  | "singularity";
 
 export interface Piece {
   readonly id: number;
@@ -21,11 +44,18 @@ export interface PlacedPiece extends Cell {
 
 /** Visual effect metadata attached to a clear step. */
 export type Effect =
-  | { kind: "stripeH"; r: number; c: number }
-  | { kind: "stripeV"; r: number; c: number }
-  | { kind: "wrapped"; r: number; c: number }
-  | { kind: "bomb"; r: number; c: number; color: number }
-  | { kind: "bombAll"; r: number; c: number };
+  | { kind: "laser"; r: number; c: number; axis: "h" | "v" }
+  | { kind: "pulse"; r: number; c: number; radius: number }
+  | { kind: "nova"; r: number; c: number; radius: number }
+  | {
+      kind: "prism";
+      r: number;
+      c: number;
+      color: number;
+      mode: "clear" | "rocket-rain" | "blast-field" | "cross-storm";
+    }
+  | { kind: "singularity"; r: number; c: number }
+  | { kind: "combo"; r: number; c: number; combo: ComboKind; color?: number };
 
 /** One visual phase of resolving a move. The client replays these in order. */
 export type Step =

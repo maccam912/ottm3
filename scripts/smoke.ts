@@ -54,39 +54,46 @@ async function main(): Promise<void> {
     await page.goto(`${URL_BASE}/?seed=123`, { waitUntil: "networkidle0" });
 
     // Wait for the entrance animation to finish and the board to unlock.
-    await page.waitForFunction(() => window.__glaze && !window.__glaze.isLocked(), {
+    await page.waitForFunction(() => window.__ottm3 && !window.__ottm3.isLocked(), {
       timeout: 20000,
     });
 
-    const boardSize = await page.evaluate(() => window.__glaze!.board().length);
+    const boardSize = await page.evaluate(() => window.__ottm3!.board().length);
     if (boardSize !== 64) throw new Error(`expected 64 pieces, got ${boardSize}`);
     console.log("✓ board rendered with 64 pieces");
 
-    // Play 5 moves via the hint (same doSwap path as real input).
-    for (let i = 0; i < 5; i++) {
+    // Play ten high-value moves through the real replay path. This is long
+    // enough to exercise cascades and powerup creation/activation on the
+    // pinned seed without reaching the 15-move stage boundary.
+    for (let i = 0; i < 10; i++) {
       await page.evaluate(() => {
-        const g = window.__glaze!;
-        const h = g.hint();
-        if (!h) throw new Error("no hint available");
-        g.swap(h[0], h[1]);
+        const g = window.__ottm3!;
+        const move = g.bestMove();
+        if (move) {
+          g.swap(move.a, move.b);
+          return;
+        }
+        const hint = g.hint();
+        if (!hint) throw new Error("no move available");
+        g.swap(hint[0], hint[1]);
       });
-      await page.waitForFunction(() => !window.__glaze!.isLocked(), { timeout: 20000 });
+      await page.waitForFunction(() => !window.__ottm3!.isLocked(), { timeout: 20000 });
     }
 
-    const score = await page.evaluate(() => window.__glaze!.score());
-    if (score <= 0) throw new Error("score did not increase after 5 moves");
-    console.log(`✓ played 5 moves through the input path, score = ${score}`);
+    const score = await page.evaluate(() => window.__ottm3!.score());
+    if (score <= 0) throw new Error("score did not increase after 10 moves");
+    console.log(`✓ played 10 moves through the input path, score = ${score}`);
 
-    const settled = await page.evaluate(() => window.__glaze!.board().length);
+    const settled = await page.evaluate(() => window.__ottm3!.board().length);
     if (settled !== 64) throw new Error(`board not settled: ${settled} pieces`);
     console.log("✓ board settled back to 64 pieces");
 
     // Ghost check: the number of sprites must match the engine's board.
-    const viewCount = await page.evaluate(() => window.__glaze!.viewCount());
+    const viewCount = await page.evaluate(() => window.__ottm3!.viewCount());
     if (viewCount !== 64) {
       throw new Error(`sprite/board mismatch: ${viewCount} sprites for 64 pieces (ghosts?)`);
     }
-    console.log("✓ sprite count matches board (no ghost donuts)");
+    console.log("✓ sprite count matches board (no ghost relics)");
 
     mkdirSync(OUT_DIR, { recursive: true });
     const shot = (await page.screenshot({ type: "png" })) as Buffer;
@@ -129,7 +136,7 @@ async function omlxCheck(png: Buffer): Promise<void> {
               type: "text",
               text:
                 "This is a screenshot of a match-3 puzzle game. Answer with YES or NO then one sentence: " +
-                "does it show a complete grid of colorful donut-like pieces with a visible score, " +
+                "does it show a complete grid of colorful cosmic relics with a visible score, " +
                 "and no rendering glitches (missing tiles, garbled text, black boxes)?",
             },
           ],

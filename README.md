@@ -1,77 +1,94 @@
-# GLAZE 🍩
+# OTTM3 — OVER THE TOP MATCH 3 ⚡
 
-An ultra-satisfying donut-shop match-3. No gacha, no lives, no timers, no
-teasing — just an endless board, chunky cascades, and dopamine.
+OTTM3 is a neon cosmic jackpot disguised as a match-3 game. Every swap is an
+excuse for lasers, particles, shader distortion, hitstop, screen shake,
+squash-and-stretch, rising audio, and chain reactions that get less reasonable
+as the cascade counter climbs. There are no lives, ads, currencies, or timers:
+each run is a sequence of 15-move jackpot stages with an immediate restart.
 
-Drag (or tap-tap) to swap donuts. Match 3 to pop them. Match 4 to bake a
-**striped** donut (clears a line), match in an L/T or a 2x2 square for a
-**wrapped** donut (explodes), match 5 for a **color bomb** (clears a whole
-flavor). Specials fire the moment you swap them — no follow-up match required —
-and swapping two specials together gives the big payoffs, including bomb+bomb,
-which clears the entire board.
+Drag a relic into a neighbor or use tap-tap controls. Ordinary matches clear;
+larger shapes manufacture powerups, and swapping a powerup fires it immediately
+without requiring another match.
 
-## Why it feels good
+## Powerups
 
-- **Cascade pops climb a pentatonic scale** — every chain reaction plays a
-  rising melody.
-- Squash-and-stretch landings, staggered pops, crumb + glow particle bursts,
-  screen shake scaled to the combo, and a brief hitstop on the big blasts.
-- Combo banners (TASTY! → SUGAR RUSH!), floating scores, a rolling score
-  counter, and confetti at every 10,000-point milestone.
-- If you idle, a valid move wobbles gently. If the board deadlocks, it
-  reshuffles itself ("FRESH DONUTS!"). The game never blocks you.
+- **4 in a line → Rocket:** fires through a full row or column.
+- **2×2 square → Pulse:** detonates a compact 3×3 field.
+- **L/T intersection → Nova:** vaporizes its row, column, and core field.
+- **Straight 5 → Prism:** erases every relic of the swapped color.
+- **Straight 6 or a 9+ relic group → Singularity:** the board has made a
+  serious tactical error.
 
-## Helpers
+Every pair of powerups has a bespoke result. The complete matrix includes
+parallel and crossed rocket barrages, rocket + pulse three-lane crosses, rocket
++ nova five-lane crosses, prism rocket rain, doubled pulse fields, pulse + nova
+mega-blasts, prism blast fields, nova board wipes, prism cross-storms, double
+prism annihilation, and singularity pairings that wipe the board. Powerups
+caught inside another effect chain too, so one combination can ignite several
+more.
 
-- **💡 Best move** — the solver simulates every legal move (cascades and chain
-  reactions included — the simulation clones the RNG state, so the prediction
-  is exact) and highlights the one worth the most points and powerups, with
-  the exact score it will earn.
-- **🔮 Setup hint** — two-move lookahead: highlights the gold move to play now
-  and the faint violet follow-up it sets up, each with its exact score. Play
-  the gold move and the violet combo is guaranteed.
-- **▶ Auto play** — endless self-playing mode: telegraphs the best move, plays
-  it, repeats forever. Tap ⏸ to take the wheel back.
+## Overdrive
 
-## Install as an app (PWA)
+- Cascades escalate score, pitch, combo callouts, particles, shake, and shader
+  intensity instead of merely incrementing a quiet counter.
+- Clearing relics fills Hype; a full meter ignites three turns of audiovisual
+  Overdrive. Beat the stage payout in 15 moves to advance on the same board.
+- Six glossy cosmic relic silhouettes remain readable under the glow, while
+  rockets, pulses, novas, prisms, and singularities have distinct silhouettes
+  and effects.
+- Dead boards reshuffle automatically. Idle hints and an exact deterministic
+  best-move button keep a run moving without hiding the decision from you.
+- The deterministic engine and renderer are separate: the engine emits ordered
+  swap/clear/fall/refill steps and Phaser turns those steps into spectacle.
+  `?seed=123` pins a run for debugging.
 
-Glaze is an installable PWA: open it in a mobile browser and use "Add to Home
-Screen" (iOS Safari) or the install prompt (Android Chrome). It launches
-fullscreen with no browser chrome, and after the first visit a service worker
-caches everything so it runs fully offline.
+## Install and play offline
+
+OTTM3 is an Android-installable PWA. Open the GitHub Pages build in Chrome and
+use **Install app** or **Add to Home screen**. The manifest launches the game in
+portrait fullscreen mode with a maskable launcher icon.
+
+The production build creates a revisioned `precache-manifest.json` containing
+every emitted file. Service-worker installation atomically precaches that full
+app shell; a failed asset fetch leaves the previous working revision intact.
+After a successful worker installation, the game can cold-launch offline.
+Navigation is network-first for prompt updates, while versioned scripts, art,
+shaders, and audio are cache-first.
 
 ## Architecture
 
-```
-src/engine/   pure deterministic match-3 engine (no Phaser, fully unit-tested)
-src/client/   Phaser 3 renderer: scenes, piece views, sfx, juice
-assets/       baked art + audio (see below)
-scripts/      bake-assets.ts (asset pipeline), smoke.ts (e2e in headless Chrome)
-tests/        Vitest suite — whole games are played headlessly
+```text
+src/engine/   deterministic match-3 rules, cascades, solver, special matrix
+src/client/   Phaser renderer, generated relics, shaders, audio, juice
+assets/       install metadata plus production art/audio copied by Vite
+scripts/      asset/icon generation and headless browser smoke testing
+tests/        Vitest engine coverage, including powerup creation/combinations
 ```
 
-The engine resolves each move into an ordered list of `Step`s (swap → clear →
-fall → refill → …) that the client replays with animation. Same seed, same
-game: `?seed=123` in the URL pins the board.
+`vite.config.ts` keeps asset URLs relative for the `/ottm3/` GitHub Pages
+project path. A small build plugin hashes the completed `dist` tree, stamps the
+service worker, and writes the full precache manifest. Pushing `main` runs CI,
+builds `dist`, uploads it as the Pages artifact, and deploys it through GitHub
+Actions.
 
 ## Develop
 
 ```bash
-npm install
-npm run dev        # Vite dev server on :5173
-npm test           # engine test suite (plays full games headlessly)
+npm ci
+npm run dev          # Vite development server on :5173
+npm test             # deterministic engine suite
 npm run typecheck
-npm run smoke      # boots headless Chrome, plays 5 moves, screenshots
-npm run bake       # regenerate assets from the Kenney packs (see below)
+npm run build        # typecheck + production PWA + precache manifest
+npm run smoke        # boot Chrome, play moves, and capture visual QA
+npm run bake:icons   # regenerate the three OTTM3 PWA icons
 ```
 
-`npm run smoke` also runs a fuzzy visual QA against a local oMLX vision server
-(`localhost:8000`) when one is running; it is skipped otherwise.
+`npm run smoke` can also use a local oMLX vision server on `localhost:8000` for
+optional fuzzy visual QA; it skips that check when the server is absent.
 
 ## Credits
 
-Art and audio are CC0 from [Kenney](https://kenney.nl) — the Donuts pack,
-Impact/Interface/Digital Audio sound packs, and the "Farm Frolics" music loop.
-Donut sprites are composited (base + glazing + sprinkles, plus a baked drop
-shadow) by `scripts/bake-assets.ts` from the "Kenney Game Assets All-in-1"
-bundle, expected in `~/Downloads` when re-baking. Thanks Kenney!
+OTTM3's relics, shader treatment, effects, UI, and cosmic-jackpot launcher icon
+are original procedural/game assets. The committed icon generator uses
+`@napi-rs/canvas`, including safe padding for Android adaptive masks. Sound and
+small source particles are derived from CC0 [Kenney](https://kenney.nl) packs.

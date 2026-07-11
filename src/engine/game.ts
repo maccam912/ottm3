@@ -6,7 +6,16 @@
  * be played headlessly by calling `swap()` in a loop — see tests.
  */
 import { mulberry32, randInt, type Rng } from "./rng";
-import type { Cell, Effect, GameConfig, Piece, PlacedPiece, Special, Step } from "./types";
+import type {
+  Cell,
+  ComboKind,
+  Effect,
+  GameConfig,
+  Piece,
+  PlacedPiece,
+  Special,
+  Step,
+} from "./types";
 import { DEFAULT_CONFIG } from "./types";
 
 type Grid = (Piece | null)[][];
@@ -24,7 +33,7 @@ interface Group {
   color: number;
 }
 
-const BOMB_COLOR = -1;
+const WILD_COLOR = -1;
 
 /** A fully-simulated candidate move, ranked by `bestMove()`. */
 export interface MoveEval {
@@ -32,12 +41,12 @@ export interface MoveEval {
   b: Cell;
   /** Exact points this move will earn, cascades and chain reactions included. */
   score: number;
-  /** How many special pieces (striped/wrapped/bomb) the move creates. */
+  /** How many powerups the move creates. */
   specials: number;
 }
 
 /** Value of baking a special, for ranking moves ("points AND powerups"). */
-const SPECIAL_VALUE = 150;
+const SPECIAL_VALUE = 2_500;
 
 /** A two-move plan: the move to play now, and the follow-up it sets up. */
 export interface SetupMoveEval extends MoveEval {
@@ -47,14 +56,30 @@ export interface SetupMoveEval extends MoveEval {
   totalScore: number;
 }
 
-/** Score constants — chunky, legible numbers. */
-const PIECE_SCORE = 20;
+/** Score constants — intentionally absurd, then multiplied by cascade depth. */
+const PIECE_SCORE = 100;
 const EFFECT_SCORE: Record<Effect["kind"], number> = {
-  stripeH: 60,
-  stripeV: 60,
-  wrapped: 120,
-  bomb: 300,
-  bombAll: 1000,
+  laser: 500,
+  pulse: 1_200,
+  nova: 3_500,
+  prism: 6_000,
+  singularity: 25_000,
+  combo: 0,
+};
+const COMBO_SCORE: Record<ComboKind, number> = {
+  "rocket-parallel-h": 12_000,
+  "rocket-parallel-v": 12_000,
+  "rocket-cross": 15_000,
+  "rocket-pulse": 12_000,
+  "rocket-nova": 20_000,
+  "rocket-prism": 32_000,
+  "pulse-pulse": 16_000,
+  "pulse-nova": 25_000,
+  "pulse-prism": 38_000,
+  "nova-nova": 65_000,
+  "nova-prism": 52_000,
+  "prism-prism": 80_000,
+  singularity: 100_000,
 };
 
 function key(r: number, c: number): string {
@@ -323,95 +348,247 @@ export class Game {
     const sa = pa.special;
     const sb = pb.special;
 
-    if (sa === "bomb" && sb === "bomb") {
-      for (let r = 0; r < this.rows; r++) for (let c = 0; c < this.cols; c++) seed.add(key(r, c));
-      effects.push({ kind: "bombAll", r: posA.r, c: posA.c });
-      // Everything is already exploding; no further chains needed.
-      return { seed, effects, consumed: new Set(seed) };
-    }
-    if (sa === "bomb" || sb === "bomb") {
-      const bombPos = sa === "bomb" ? posA : posB;
-      const other = sa === "bomb" ? pb : pa;
-      seed.add(key(bombPos.r, bombPos.c));
-      for (let r = 0; r < this.rows; r++) {
-        for (let c = 0; c < this.cols; c++) {
-          if (this.at(r, c)?.color === other.color) seed.add(key(r, c));
-        }
-      }
-      effects.push({ kind: "bomb", r: bombPos.r, c: bombPos.c, color: other.color });
-      // Only the bomb itself is spent; specials it catches still chain.
-      return { seed, effects, consumed: new Set([key(bombPos.r, bombPos.c)]) };
-    }
     if (sa !== "none" && sb === "none") {
-      return this.singleSpecialSeed(sa, posA);
+      return this.singleSpecialSeed(sa, posA, pb.color);
     }
     if (sb !== "none" && sa === "none") {
-      return this.singleSpecialSeed(sb, posB);
+      return this.singleSpecialSeed(sb, posB, pa.color);
     }
-    if (sa !== "none" && sb !== "none") {
-      // striped+striped → cross; wrapped+striped → 3 rows + 3 cols; wrapped+wrapped → 5×5.
-      if (sa === "wrapped" && sb === "wrapped") {
-        for (let r = posB.r - 2; r <= posB.r + 2; r++) {
-          for (let c = posB.c - 2; c <= posB.c + 2; c++) {
-            if (this.at(r, c)) seed.add(key(r, c));
-          }
-        }
-        effects.push({ kind: "wrapped", r: posB.r, c: posB.c });
-        effects.push({ kind: "wrapped", r: posA.r, c: posA.c });
-      } else if (sa === "wrapped" || sb === "wrapped") {
-        const center = sa === "wrapped" ? posA : posB;
-        for (let d = -1; d <= 1; d++) {
-          for (let c = 0; c < this.cols; c++) {
-            if (this.at(center.r + d, c)) seed.add(key(center.r + d, c));
-          }
-          for (let r = 0; r < this.rows; r++) {
-            if (this.at(r, center.c + d)) seed.add(key(r, center.c + d));
-          }
-          effects.push({ kind: "stripeH", r: center.r + d, c: center.c });
-          effects.push({ kind: "stripeV", r: center.r, c: center.c + d });
-        }
-      } else {
-        // striped + striped: force a full cross regardless of orientations.
-        for (let c = 0; c < this.cols; c++) if (this.at(posA.r, c)) seed.add(key(posA.r, c));
-        for (let r = 0; r < this.rows; r++) if (this.at(r, posB.c)) seed.add(key(r, posB.c));
-        effects.push({ kind: "stripeH", r: posA.r, c: posA.c });
-        effects.push({ kind: "stripeV", r: posB.r, c: posB.c });
+    if (sa === "none" || sb === "none") return null;
+
+    // Both base powerups are spent by the fusion. They are the only consumed
+    // cells: any third-party powerup caught by the footprint still chains.
+    const consumed = new Set([key(posA.r, posA.c), key(posB.r, posB.c)]);
+    const add = (r: number, c: number): void => {
+      if (this.at(r, c)) seed.add(key(r, c));
+    };
+    const row = (r: number, effect = true): void => {
+      if (r < 0 || r >= this.rows) return;
+      for (let c = 0; c < this.cols; c++) add(r, c);
+      if (effect) effects.push({ kind: "laser", r, c: posA.c, axis: "h" });
+    };
+    const col = (c: number, effect = true): void => {
+      if (c < 0 || c >= this.cols) return;
+      for (let r = 0; r < this.rows; r++) add(r, c);
+      if (effect) effects.push({ kind: "laser", r: posA.r, c, axis: "v" });
+    };
+    const square = (center: Cell, radius: number): void => {
+      for (let r = center.r - radius; r <= center.r + radius; r++) {
+        for (let c = center.c - radius; c <= center.c + radius; c++) add(r, c);
       }
-      // Both specials are consumed without re-firing their normal behavior.
-      seed.add(key(posA.r, posA.c));
-      seed.add(key(posB.r, posB.c));
-      return {
-        seed,
-        effects,
-        consumed: new Set([key(posA.r, posA.c), key(posB.r, posB.c)]),
-      };
+    };
+    const crossLanes = (center: Cell, radius: number): void => {
+      for (let d = -radius; d <= radius; d++) {
+        row(center.r + d);
+        col(center.c + d);
+      }
+    };
+    const boardWipe = (): void => {
+      for (let r = 0; r < this.rows; r++) {
+        for (let c = 0; c < this.cols; c++) add(r, c);
+      }
+    };
+    const combo = (kind: ComboKind, at: Cell, color?: number): void => {
+      effects.push({ kind: "combo", combo: kind, r: at.r, c: at.c, ...(color === undefined ? {} : { color }) });
+    };
+    const isRocket = (special: Special): special is "rocketH" | "rocketV" =>
+      special === "rocketH" || special === "rocketV";
+    const resolvedColor = (piece: Piece): number =>
+      piece.color >= 0 ? piece.color : this.mostCommonColor();
+    const colorCells = (color: number): Cell[] => {
+      const cells: Cell[] = [];
+      if (color < 0) return cells;
+      for (let r = 0; r < this.rows; r++) {
+        for (let c = 0; c < this.cols; c++) {
+          if (this.at(r, c)?.color === color) cells.push({ r, c });
+        }
+      }
+      return cells;
+    };
+
+    seed.add(key(posA.r, posA.c));
+    seed.add(key(posB.r, posB.c));
+
+    // A singularity wins every pairing, including another singularity.
+    if (sa === "singularity" || sb === "singularity") {
+      const center = sa === "singularity" ? posA : posB;
+      boardWipe();
+      combo("singularity", center);
+      effects.push({ kind: "singularity", r: center.r, c: center.c });
+      return { seed, effects, consumed };
     }
-    return null;
+
+    if (sa === "prism" && sb === "prism") {
+      boardWipe();
+      combo("prism-prism", posA);
+      effects.push({ kind: "singularity", r: posA.r, c: posA.c });
+      return { seed, effects, consumed };
+    }
+
+    if (isRocket(sa) && isRocket(sb)) {
+      if (sa === sb) {
+        const horizontal = sa === "rocketH";
+        const indices = new Set(horizontal ? [posA.r, posB.r] : [posA.c, posB.c]);
+        if (indices.size === 1) {
+          const only = [...indices][0] ?? 0;
+          const limit = horizontal ? this.rows : this.cols;
+          indices.add(only + 1 < limit ? only + 1 : only - 1);
+        }
+        for (const index of indices) horizontal ? row(index) : col(index);
+        combo(horizontal ? "rocket-parallel-h" : "rocket-parallel-v", posA);
+      } else {
+        const hPos = sa === "rocketH" ? posA : posB;
+        const vPos = sa === "rocketV" ? posA : posB;
+        row(hPos.r);
+        col(vPos.c);
+        combo("rocket-cross", posA);
+      }
+      return { seed, effects, consumed };
+    }
+
+    if ((isRocket(sa) && sb === "pulse") || (isRocket(sb) && sa === "pulse")) {
+      const center = sa === "pulse" ? posA : posB;
+      crossLanes(center, 1);
+      combo("rocket-pulse", center);
+      effects.push({ kind: "pulse", r: center.r, c: center.c, radius: 1 });
+      return { seed, effects, consumed };
+    }
+
+    if ((isRocket(sa) && sb === "nova") || (isRocket(sb) && sa === "nova")) {
+      const center = sa === "nova" ? posA : posB;
+      crossLanes(center, 2);
+      combo("rocket-nova", center);
+      effects.push({ kind: "nova", r: center.r, c: center.c, radius: 2 });
+      return { seed, effects, consumed };
+    }
+
+    if ((isRocket(sa) && sb === "prism") || (isRocket(sb) && sa === "prism")) {
+      const rocket = isRocket(sa) ? pa : pb;
+      const prismPos = sa === "prism" ? posA : posB;
+      const color = resolvedColor(rocket);
+      const targets = colorCells(color);
+      const startsHorizontal = rocket.special === "rocketH";
+      targets.forEach((cell, index) => {
+        const horizontal = index % 2 === 0 ? startsHorizontal : !startsHorizontal;
+        if (horizontal) {
+          for (let c = 0; c < this.cols; c++) add(cell.r, c);
+          effects.push({ kind: "laser", r: cell.r, c: cell.c, axis: "h" });
+        } else {
+          for (let r = 0; r < this.rows; r++) add(r, cell.c);
+          effects.push({ kind: "laser", r: cell.r, c: cell.c, axis: "v" });
+        }
+      });
+      combo("rocket-prism", prismPos, color);
+      effects.push({ kind: "prism", r: prismPos.r, c: prismPos.c, color, mode: "rocket-rain" });
+      return { seed, effects, consumed };
+    }
+
+    if (sa === "pulse" && sb === "pulse") {
+      square(posA, 2);
+      combo("pulse-pulse", posA);
+      effects.push({ kind: "pulse", r: posA.r, c: posA.c, radius: 2 });
+      return { seed, effects, consumed };
+    }
+
+    if ((sa === "pulse" && sb === "nova") || (sa === "nova" && sb === "pulse")) {
+      const center = sa === "nova" ? posA : posB;
+      square(center, 3);
+      combo("pulse-nova", center);
+      effects.push({ kind: "nova", r: center.r, c: center.c, radius: 3 });
+      return { seed, effects, consumed };
+    }
+
+    if ((sa === "pulse" && sb === "prism") || (sa === "prism" && sb === "pulse")) {
+      const pulse = sa === "pulse" ? pa : pb;
+      const prismPos = sa === "prism" ? posA : posB;
+      const color = resolvedColor(pulse);
+      for (const cell of colorCells(color)) {
+        square(cell, 1);
+        effects.push({ kind: "pulse", r: cell.r, c: cell.c, radius: 1 });
+      }
+      combo("pulse-prism", prismPos, color);
+      effects.push({ kind: "prism", r: prismPos.r, c: prismPos.c, color, mode: "blast-field" });
+      return { seed, effects, consumed };
+    }
+
+    if (sa === "nova" && sb === "nova") {
+      boardWipe();
+      combo("nova-nova", posA);
+      effects.push({ kind: "nova", r: posA.r, c: posA.c, radius: Math.max(this.rows, this.cols) });
+      return { seed, effects, consumed };
+    }
+
+    if ((sa === "nova" && sb === "prism") || (sa === "prism" && sb === "nova")) {
+      const nova = sa === "nova" ? pa : pb;
+      const prismPos = sa === "prism" ? posA : posB;
+      const color = resolvedColor(nova);
+      for (const cell of colorCells(color)) {
+        for (let c = 0; c < this.cols; c++) add(cell.r, c);
+        for (let r = 0; r < this.rows; r++) add(r, cell.c);
+        effects.push({ kind: "nova", r: cell.r, c: cell.c, radius: 1 });
+      }
+      combo("nova-prism", prismPos, color);
+      effects.push({ kind: "prism", r: prismPos.r, c: prismPos.c, color, mode: "cross-storm" });
+      return { seed, effects, consumed };
+    }
+
+    // The exhaustive matrix above handles every non-none pair.
+    return { seed, effects, consumed };
   }
 
-  /** A lone striped/wrapped swapped with a normal piece fires from where it lands. */
+  /** A lone powerup swapped with a normal piece fires from where it lands. */
   private singleSpecialSeed(
     special: Special,
     pos: Cell,
+    targetColor?: number,
   ): { seed: Set<string>; effects: Effect[]; consumed: Set<string> } {
     const seed = new Set<string>([key(pos.r, pos.c)]);
     const effects: Effect[] = [];
+    const add = (r: number, c: number): void => {
+      if (this.at(r, c)) seed.add(key(r, c));
+    };
     switch (special) {
-      case "stripedH":
-        for (let c = 0; c < this.cols; c++) if (this.at(pos.r, c)) seed.add(key(pos.r, c));
-        effects.push({ kind: "stripeH", r: pos.r, c: pos.c });
+      case "rocketH":
+        for (let c = 0; c < this.cols; c++) add(pos.r, c);
+        effects.push({ kind: "laser", r: pos.r, c: pos.c, axis: "h" });
         break;
-      case "stripedV":
-        for (let r = 0; r < this.rows; r++) if (this.at(r, pos.c)) seed.add(key(r, pos.c));
-        effects.push({ kind: "stripeV", r: pos.r, c: pos.c });
+      case "rocketV":
+        for (let r = 0; r < this.rows; r++) add(r, pos.c);
+        effects.push({ kind: "laser", r: pos.r, c: pos.c, axis: "v" });
         break;
-      case "wrapped":
+      case "pulse":
         for (let r = pos.r - 1; r <= pos.r + 1; r++) {
           for (let c = pos.c - 1; c <= pos.c + 1; c++) {
-            if (this.at(r, c)) seed.add(key(r, c));
+            add(r, c);
           }
         }
-        effects.push({ kind: "wrapped", r: pos.r, c: pos.c });
+        effects.push({ kind: "pulse", r: pos.r, c: pos.c, radius: 1 });
+        break;
+      case "nova":
+        for (let c = 0; c < this.cols; c++) add(pos.r, c);
+        for (let r = 0; r < this.rows; r++) add(r, pos.c);
+        for (let r = pos.r - 1; r <= pos.r + 1; r++) {
+          for (let c = pos.c - 1; c <= pos.c + 1; c++) add(r, c);
+        }
+        effects.push({ kind: "nova", r: pos.r, c: pos.c, radius: 1 });
+        break;
+      case "prism": {
+        const color = targetColor !== undefined && targetColor >= 0 ? targetColor : this.mostCommonColor();
+        if (color >= 0) {
+          for (let r = 0; r < this.rows; r++) {
+            for (let c = 0; c < this.cols; c++) {
+              if (this.at(r, c)?.color === color) add(r, c);
+            }
+          }
+        }
+        effects.push({ kind: "prism", r: pos.r, c: pos.c, color, mode: "clear" });
+        break;
+      }
+      case "singularity":
+        for (let r = 0; r < this.rows; r++) {
+          for (let c = 0; c < this.cols; c++) add(r, c);
+        }
+        effects.push({ kind: "singularity", r: pos.r, c: pos.c });
         break;
       default:
         break;
@@ -463,7 +640,10 @@ export class Game {
 
       // Score this step.
       let stepScore = clearSet.size * PIECE_SCORE * cascade;
-      for (const e of effects) stepScore += EFFECT_SCORE[e.kind] * cascade;
+      for (const e of effects) {
+        const effectScore = e.kind === "combo" ? COMBO_SCORE[e.combo] : EFFECT_SCORE[e.kind];
+        stepScore += effectScore * cascade;
+      }
       this.score += stepScore;
 
       // Emit the clear step.
@@ -561,22 +741,30 @@ export class Game {
         };
 
         switch (p.special) {
-          case "stripedH":
+          case "rocketH":
             for (let cc = 0; cc < this.cols; cc++) add(r, cc);
-            effects.push({ kind: "stripeH", r, c });
+            effects.push({ kind: "laser", r, c, axis: "h" });
             break;
-          case "stripedV":
+          case "rocketV":
             for (let rr = 0; rr < this.rows; rr++) add(rr, c);
-            effects.push({ kind: "stripeV", r, c });
+            effects.push({ kind: "laser", r, c, axis: "v" });
             break;
-          case "wrapped":
+          case "pulse":
             for (let rr = r - 1; rr <= r + 1; rr++) {
               for (let cc = c - 1; cc <= c + 1; cc++) add(rr, cc);
             }
-            effects.push({ kind: "wrapped", r, c });
+            effects.push({ kind: "pulse", r, c, radius: 1 });
             break;
-          case "bomb": {
-            // A bomb caught in an explosion detonates on the most common color.
+          case "nova":
+            for (let cc = 0; cc < this.cols; cc++) add(r, cc);
+            for (let rr = 0; rr < this.rows; rr++) add(rr, c);
+            for (let rr = r - 1; rr <= r + 1; rr++) {
+              for (let cc = c - 1; cc <= c + 1; cc++) add(rr, cc);
+            }
+            effects.push({ kind: "nova", r, c, radius: 1 });
+            break;
+          case "prism": {
+            // A prism caught in a blast targets the board's most common color.
             const color = this.mostCommonColor();
             if (color >= 0) {
               for (let rr = 0; rr < this.rows; rr++) {
@@ -585,9 +773,15 @@ export class Game {
                 }
               }
             }
-            effects.push({ kind: "bomb", r, c, color });
+            effects.push({ kind: "prism", r, c, color, mode: "clear" });
             break;
           }
+          case "singularity":
+            for (let rr = 0; rr < this.rows; rr++) {
+              for (let cc = 0; cc < this.cols; cc++) add(rr, cc);
+            }
+            effects.push({ kind: "singularity", r, c });
+            break;
         }
       }
       if (!grew) {
@@ -624,7 +818,7 @@ export class Game {
 
   /**
    * Find all matched shapes: straight runs of 3+ and 2x2 squares of the same
-   * color. Bombs (color -1) never match.
+   * color. Wild powerups (color -1) never match.
    */
   private findShapes(): Shape[] {
     const shapes: Shape[] = [];
@@ -740,18 +934,20 @@ export class Game {
     let special: Special | null = null;
     let color = g.color;
 
-    if (longest && longest.cells.length >= 5) {
-      special = "bomb";
-      color = BOMB_COLOR;
+    if ((longest && longest.cells.length >= 6) || g.cells.length >= 9) {
+      special = "singularity";
+      color = WILD_COLOR;
+    } else if (longest && longest.cells.length === 5) {
+      special = "prism";
+      color = WILD_COLOR;
     } else if (lines.length >= 2) {
       // Intersecting L/T shape.
-      special = "wrapped";
+      special = "nova";
     } else if (g.shapes.some((s) => s.kind === "sq")) {
-      // A 2x2 square bakes a little bomb.
-      special = "wrapped";
+      special = "pulse";
     } else if (longest && longest.cells.length === 4) {
-      // Perpendicular fire: a horizontal 4-match clears a column, and vice versa.
-      special = longest.kind === "h" ? "stripedV" : "stripedH";
+      // Perpendicular fire: a horizontal 4-match makes a vertical rocket.
+      special = longest.kind === "h" ? "rocketV" : "rocketH";
     }
     if (!special) return null;
 

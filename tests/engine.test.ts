@@ -1,13 +1,48 @@
 import { describe, expect, it } from "vitest";
 import { Game } from "../src/engine/game";
 import { mulberry32 } from "../src/engine/rng";
-import type { Special, Step } from "../src/engine/types";
+import type { ComboKind, Special, Step } from "../src/engine/types";
 
 /** A neutral filler pattern with no matches and no accidental interactions. */
 // Colors 0..5. Layouts below are chosen so only the intended match can occur.
 
 function clearSteps(steps: Step[]) {
   return steps.filter((s) => s.type === "clear");
+}
+
+function neutralBoard(size = 8): number[][] {
+  return Array.from({ length: size }, (_, r) =>
+    Array.from({ length: size }, (_, c) => (r * 2 + c) % 6),
+  );
+}
+
+function gameWithPair(
+  a: Special,
+  b: Special,
+  extras: Array<{ r: number; c: number; special: Special }> = [],
+): Game {
+  const colors = neutralBoard();
+  const specials: Special[][] = Array.from({ length: 8 }, () =>
+    Array.from({ length: 8 }, () => "none" as const),
+  );
+  const cells = [
+    { r: 3, c: 3, special: a },
+    { r: 3, c: 4, special: b },
+    ...extras,
+  ];
+  for (const cell of cells) {
+    const row = specials[cell.r];
+    if (row) row[cell.c] = cell.special;
+    if (cell.special === "prism" || cell.special === "singularity") {
+      const colorRow = colors[cell.r];
+      if (colorRow) colorRow[cell.c] = -1;
+    }
+  }
+  return Game.fromColors(colors, { seed: 71 }, specials);
+}
+
+function pairClear(a: Special, b: Special) {
+  return clearSteps(gameWithPair(a, b).swap({ r: 3, c: 3 }, { r: 3, c: 4 }))[0];
 }
 
 function assertSettled(game: Game): void {
@@ -106,15 +141,15 @@ describe("swaps", () => {
     if (clear?.type === "clear") {
       expect(clear.pieces.length).toBe(3);
       expect(clear.cascade).toBe(1);
-      expect(clear.score).toBe(3 * 20);
+      expect(clear.score).toBe(3 * 100);
     }
-    expect(game.score).toBeGreaterThanOrEqual(60);
+    expect(game.score).toBeGreaterThanOrEqual(300);
     assertSettled(game);
   });
 });
 
 describe("special creation", () => {
-  it("a horizontal 4-match creates a column-clearing striped piece at the swap cell", () => {
+  it("a horizontal 4-match creates a column-clearing rocket at the swap cell", () => {
     const game = Game.fromColors([
       [1, 2, 3, 4, 5],
       [0, 0, 1, 0, 0],
@@ -137,7 +172,7 @@ describe("special creation", () => {
     expect(clear?.type).toBe("clear");
     if (clear?.type === "clear") {
       expect(clear.created).toHaveLength(1);
-      expect(clear.created[0]?.special).toBe("stripedV");
+      expect(clear.created[0]?.special).toBe("rocketV");
       expect(clear.created[0]?.r).toBe(1);
       expect(clear.created[0]?.c).toBe(2);
       // ALL 4 matched pieces are cleared (the old piece at the creation cell
@@ -151,7 +186,7 @@ describe("special creation", () => {
     }
   });
 
-  it("a 2x2 square match creates a wrapped piece", () => {
+  it("a 2x2 square match creates a pulse", () => {
     const game = Game.fromColors([
       [0, 0, 2, 3],
       [0, 5, 0, 1],
@@ -165,7 +200,7 @@ describe("special creation", () => {
     if (clear?.type === "clear") {
       expect(clear.pieces.length).toBe(4);
       expect(clear.created).toHaveLength(1);
-      expect(clear.created[0]?.special).toBe("wrapped");
+      expect(clear.created[0]?.special).toBe("pulse");
       // Created at the swapped cell, which is part of the square.
       expect(clear.created[0]?.r).toBe(1);
       expect(clear.created[0]?.c).toBe(1);
@@ -173,7 +208,7 @@ describe("special creation", () => {
     assertSettled(game);
   });
 
-  it("a 5-match creates a color bomb", () => {
+  it("a straight 5-match creates a prism", () => {
     const game = Game.fromColors([
       [1, 2, 3, 4, 5],
       [0, 0, 1, 0, 0],
@@ -185,14 +220,54 @@ describe("special creation", () => {
     const clear = clearSteps(steps)[0];
     if (clear?.type === "clear") {
       expect(clear.created).toHaveLength(1);
-      expect(clear.created[0]?.special).toBe("bomb");
+      expect(clear.created[0]?.special).toBe("prism");
     }
-    const bomb = game.board.find((p) => p.special === "bomb");
-    expect(bomb).toBeDefined();
-    expect(bomb?.color).toBe(-1);
+    const prism = game.board.find((p) => p.special === "prism");
+    expect(prism).toBeDefined();
+    expect(prism?.color).toBe(-1);
   });
 
-  it("an L-shaped match creates a wrapped piece", () => {
+  it("a straight 6-match creates a singularity", () => {
+    const game = Game.fromColors([
+      [1, 2, 3, 4, 5, 1],
+      [0, 0, 1, 0, 0, 0],
+      [2, 3, 0, 5, 1, 2],
+      [3, 4, 5, 1, 2, 3],
+      [4, 5, 1, 2, 3, 4],
+    ]);
+    const steps = game.swap({ r: 2, c: 2 }, { r: 1, c: 2 });
+    const clear = clearSteps(steps)[0];
+    expect(clear?.type).toBe("clear");
+    if (clear?.type === "clear") {
+      expect(clear.pieces.length).toBe(6);
+      expect(clear.created).toHaveLength(1);
+      expect(clear.created[0]?.special).toBe("singularity");
+      expect(clear.created[0]?.color).toBe(-1);
+    }
+  });
+
+  it("a nine-cell intersecting group creates a singularity", () => {
+    const colors = neutralBoard(7);
+    for (let i = 1; i <= 5; i++) {
+      const row = colors[3];
+      const columnRow = colors[i];
+      if (row) row[i] = 0;
+      if (columnRow) columnRow[3] = 0;
+    }
+    const game = Game.fromColors(colors);
+    // `fromColors` permits scripted ready-made shapes. Swapping two equal arm
+    // pieces lets us exercise the nine-cell grouping rule directly.
+    const steps = game.swap({ r: 3, c: 1 }, { r: 3, c: 2 });
+    const clear = clearSteps(steps)[0];
+    expect(clear?.type).toBe("clear");
+    if (clear?.type === "clear") {
+      expect(clear.pieces.length).toBeGreaterThanOrEqual(9);
+      expect(clear.created).toHaveLength(1);
+      expect(clear.created[0]?.special).toBe("singularity");
+    }
+  });
+
+  it("an L-shaped match creates a nova", () => {
     // Vertical 0s at (0,0),(1,0) and horizontal 0s at (2,1),(2,2); moving
     // (2,1)... instead swap (2,0)←(2,1)? Build: swapping (2,0) with (3,0)
     // brings a 0 to complete both the column and the row through (2,0).
@@ -208,7 +283,7 @@ describe("special creation", () => {
     expect(clear?.type).toBe("clear");
     if (clear?.type === "clear") {
       expect(clear.created).toHaveLength(1);
-      expect(clear.created[0]?.special).toBe("wrapped");
+      expect(clear.created[0]?.special).toBe("nova");
       expect(clear.created[0]?.r).toBe(2);
       expect(clear.created[0]?.c).toBe(0);
     }
@@ -216,11 +291,11 @@ describe("special creation", () => {
 });
 
 describe("special activation", () => {
-  it("a striped piece caught in a match clears its whole row", () => {
+  it("a rocket caught in a match clears its whole row", () => {
     const specials: Special[][] = [
       ["none", "none", "none", "none"],
       ["none", "none", "none", "none"],
-      ["stripedH", "none", "none", "none"],
+      ["rocketH", "none", "none", "none"],
       ["none", "none", "none", "none"],
     ];
     const game = Game.fromColors(
@@ -240,14 +315,14 @@ describe("special activation", () => {
     if (clear?.type === "clear") {
       // 3 matched + rest of row 2 (3 more pieces) = 6 cleared.
       expect(clear.pieces.length).toBe(6);
-      expect(clear.effects.some((e) => e.kind === "stripeH" && e.r === 2)).toBe(true);
+      expect(clear.effects.some((e) => e.kind === "laser" && e.axis === "h" && e.r === 2)).toBe(true);
     }
   });
 
-  it("swapping a bomb with a normal piece clears that color", () => {
+  it("swapping a prism with a normal piece clears that color", () => {
     const specials: Special[][] = [
       ["none", "none", "none", "none"],
-      ["bomb", "none", "none", "none"],
+      ["prism", "none", "none", "none"],
       ["none", "none", "none", "none"],
       ["none", "none", "none", "none"],
     ];
@@ -267,17 +342,37 @@ describe("special activation", () => {
     const clear = clearSteps(steps)[0];
     expect(clear?.type).toBe("clear");
     if (clear?.type === "clear") {
-      // Bomb + every color-2 piece.
+      // Prism + every color-2 piece.
       expect(clear.pieces.length).toBe(5);
-      expect(clear.effects.some((e) => e.kind === "bomb" && e.color === 2)).toBe(true);
+      expect(clear.effects.some((e) => e.kind === "prism" && e.color === 2)).toBe(true);
     }
     assertSettled(game);
   });
 
-  it("a striped piece fires when swapped with a normal piece, no match needed", () => {
+  it("a prism caught in another blast targets the most common color", () => {
+    const game = gameWithPair("pulse", "none", [{ r: 2, c: 3, special: "prism" }]);
+    const counts = new Map<number, number>();
+    for (const piece of game.board) {
+      if (piece.color >= 0) counts.set(piece.color, (counts.get(piece.color) ?? 0) + 1);
+    }
+    const expectedColor = [...counts].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]?.[0];
+    const steps = game.swap({ r: 3, c: 3 }, { r: 3, c: 4 });
+    const clear = clearSteps(steps)[0];
+    expect(clear?.type).toBe("clear");
+    if (clear?.type === "clear") {
+      expect(
+        clear.effects.some(
+          (e) => e.kind === "prism" && e.mode === "clear" && e.color === expectedColor,
+        ),
+      ).toBe(true);
+    }
+    assertSettled(game);
+  });
+
+  it("a rocket fires when swapped with a normal piece, no match needed", () => {
     const specials: Special[][] = [
       ["none", "none", "none", "none"],
-      ["none", "stripedH", "none", "none"],
+      ["none", "rocketH", "none", "none"],
       ["none", "none", "none", "none"],
       ["none", "none", "none", "none"],
     ];
@@ -299,15 +394,15 @@ describe("special activation", () => {
     expect(clear?.type).toBe("clear");
     if (clear?.type === "clear") {
       expect(clear.pieces.length).toBe(4); // full row 2
-      expect(clear.effects.some((e) => e.kind === "stripeH" && e.r === 2)).toBe(true);
+      expect(clear.effects.some((e) => e.kind === "laser" && e.axis === "h" && e.r === 2)).toBe(true);
     }
     assertSettled(game);
   });
 
-  it("a wrapped piece detonates 3x3 when swapped with a normal piece", () => {
+  it("a pulse detonates 3x3 when swapped with a normal piece", () => {
     const specials: Special[][] = [
       ["none", "none", "none", "none"],
-      ["none", "wrapped", "none", "none"],
+      ["none", "pulse", "none", "none"],
       ["none", "none", "none", "none"],
       ["none", "none", "none", "none"],
     ];
@@ -327,15 +422,39 @@ describe("special activation", () => {
     if (clear?.type === "clear") {
       // 3x3 centered on (2,1) = 9 pieces.
       expect(clear.pieces.length).toBe(9);
-      expect(clear.effects.some((e) => e.kind === "wrapped" && e.r === 2 && e.c === 1)).toBe(true);
+      expect(clear.effects.some((e) => e.kind === "pulse" && e.r === 2 && e.c === 1)).toBe(true);
     }
     assertSettled(game);
   });
 
-  it("swapping two striped pieces fires a full cross", () => {
+  it("a nova clears its row, column, and surrounding 3x3", () => {
+    const game = gameWithPair("nova", "none");
+    const steps = game.swap({ r: 3, c: 3 }, { r: 3, c: 4 });
+    const clear = clearSteps(steps)[0];
+    expect(clear?.type).toBe("clear");
+    if (clear?.type === "clear") {
+      expect(clear.pieces.length).toBe(19);
+      expect(clear.effects).toContainEqual({ kind: "nova", r: 3, c: 4, radius: 1 });
+    }
+    assertSettled(game);
+  });
+
+  it("a singularity wipes the board when swapped with a normal piece", () => {
+    const game = gameWithPair("singularity", "none");
+    const steps = game.swap({ r: 3, c: 3 }, { r: 3, c: 4 });
+    const clear = clearSteps(steps)[0];
+    expect(clear?.type).toBe("clear");
+    if (clear?.type === "clear") {
+      expect(clear.pieces.length).toBe(64);
+      expect(clear.effects).toContainEqual({ kind: "singularity", r: 3, c: 4 });
+    }
+    assertSettled(game);
+  });
+
+  it("swapping perpendicular rockets fires a full cross", () => {
     const specials: Special[][] = [
       ["none", "none", "none", "none"],
-      ["stripedH", "stripedV", "none", "none"],
+      ["rocketH", "rocketV", "none", "none"],
       ["none", "none", "none", "none"],
       ["none", "none", "none", "none"],
     ];
@@ -355,8 +474,114 @@ describe("special activation", () => {
     if (clear?.type === "clear") {
       // Full row 1 (4) + full column 0 (4) minus shared cell = 7.
       expect(clear.pieces.length).toBe(7);
-      expect(clear.effects.some((e) => e.kind === "stripeH")).toBe(true);
-      expect(clear.effects.some((e) => e.kind === "stripeV")).toBe(true);
+      expect(clear.effects.some((e) => e.kind === "combo" && e.combo === "rocket-cross")).toBe(true);
+      expect(clear.effects.some((e) => e.kind === "laser" && e.axis === "h")).toBe(true);
+      expect(clear.effects.some((e) => e.kind === "laser" && e.axis === "v")).toBe(true);
+    }
+  });
+});
+
+describe("powerup fusion matrix", () => {
+  const comboCases: Array<[Special, Special, ComboKind]> = [
+    ["rocketH", "rocketH", "rocket-parallel-h"],
+    ["rocketV", "rocketV", "rocket-parallel-v"],
+    ["rocketH", "rocketV", "rocket-cross"],
+    ["rocketH", "pulse", "rocket-pulse"],
+    ["rocketV", "nova", "rocket-nova"],
+    ["rocketH", "prism", "rocket-prism"],
+    ["pulse", "pulse", "pulse-pulse"],
+    ["pulse", "nova", "pulse-nova"],
+    ["pulse", "prism", "pulse-prism"],
+    ["nova", "nova", "nova-nova"],
+    ["nova", "prism", "nova-prism"],
+    ["prism", "prism", "prism-prism"],
+    ["pulse", "singularity", "singularity"],
+  ];
+
+  it.each(comboCases)("%s + %s emits the %s combo", (a, b, combo) => {
+    const clear = pairClear(a, b);
+    expect(clear?.type).toBe("clear");
+    if (clear?.type === "clear") {
+      expect(clear.effects.some((e) => e.kind === "combo" && e.combo === combo)).toBe(true);
+      expect(clear.score).toBeGreaterThan(10_000);
+    }
+  });
+
+  it("resolves every asymmetric fusion identically in reverse order", () => {
+    for (const [a, b, combo] of comboCases) {
+      if (a === b) continue;
+      const clear = pairClear(b, a);
+      expect(clear?.type).toBe("clear");
+      if (clear?.type === "clear") {
+        expect(clear.effects.some((e) => e.kind === "combo" && e.combo === combo)).toBe(true);
+      }
+    }
+  });
+
+  const footprintCases: Array<[Special, Special, number]> = [
+    ["rocketH", "rocketH", 16],
+    ["rocketV", "rocketV", 16],
+    ["rocketH", "rocketV", 15],
+    ["rocketH", "pulse", 39],
+    ["rocketH", "nova", 55],
+    ["pulse", "pulse", 25],
+    ["pulse", "nova", 49],
+    ["nova", "nova", 64],
+    ["prism", "prism", 64],
+  ];
+
+  it.each(footprintCases)("%s + %s clears its bespoke %i-cell footprint", (a, b, count) => {
+    const clear = pairClear(a, b);
+    expect(clear?.type).toBe("clear");
+    if (clear?.type === "clear") expect(clear.pieces.length).toBe(count);
+  });
+
+  it.each(["rocketH", "pulse", "nova", "prism", "singularity"] as const)(
+    "%s + singularity wipes the board",
+    (special) => {
+      const clear = pairClear(special, "singularity");
+      expect(clear?.type).toBe("clear");
+      if (clear?.type === "clear") {
+        expect(clear.pieces.length).toBe(64);
+        expect(
+          clear.effects.some((e) => e.kind === "combo" && e.combo === "singularity"),
+        ).toBe(true);
+      }
+    },
+  );
+
+  it("color fusions report their target color and spectacle mode", () => {
+    const cases: Array<[
+      Special,
+      Special,
+      ComboKind,
+      "rocket-rain" | "blast-field" | "cross-storm",
+    ]> = [
+      ["rocketH", "prism", "rocket-prism", "rocket-rain"],
+      ["pulse", "prism", "pulse-prism", "blast-field"],
+      ["nova", "prism", "nova-prism", "cross-storm"],
+    ];
+    for (const [a, b, combo, mode] of cases) {
+      const clear = pairClear(a, b);
+      expect(clear?.type).toBe("clear");
+      if (clear?.type !== "clear") continue;
+      const comboFx = clear.effects.find((e) => e.kind === "combo" && e.combo === combo);
+      const prismFx = clear.effects.find((e) => e.kind === "prism" && e.mode === mode);
+      expect(comboFx?.kind === "combo" ? comboFx.color : undefined).toBeGreaterThanOrEqual(0);
+      expect(prismFx?.kind === "prism" ? prismFx.color : undefined).toBe(
+        comboFx?.kind === "combo" ? comboFx.color : undefined,
+      );
+    }
+  });
+
+  it("consumes only the fused pair while caught third-party powerups still chain", () => {
+    const game = gameWithPair("nova", "nova", [{ r: 0, c: 0, special: "rocketH" }]);
+    const clear = clearSteps(game.swap({ r: 3, c: 3 }, { r: 3, c: 4 }))[0];
+    expect(clear?.type).toBe("clear");
+    if (clear?.type === "clear") {
+      expect(clear.pieces.length).toBe(64);
+      expect(clear.effects.filter((e) => e.kind === "nova")).toHaveLength(1);
+      expect(clear.effects.some((e) => e.kind === "laser" && e.r === 0)).toBe(true);
     }
   });
 });
@@ -377,7 +602,7 @@ describe("cascades and scoring", () => {
     const steps = game.swap({ r: 3, c: 0 }, { r: 4, c: 0 });
     const clear = clearSteps(steps)[0];
     if (clear?.type === "clear") {
-      expect(clear.score).toBe(clear.pieces.length * 20);
+      expect(clear.score).toBe(clear.pieces.length * 100);
     }
   });
 });
@@ -519,8 +744,8 @@ describe("clone and bestMove (the solver)", () => {
       sim.swap(hint[0], hint[1]);
       const hintScore = sim.score - game.score;
       // Ranking is score + specials bonus, so pure score can only lose to a
-      // move that bakes more specials — which the bonus values at 150 each.
-      expect(best.score + best.specials * 150).toBeGreaterThanOrEqual(hintScore);
+      // move that bakes more specials — which the bonus values at 2,500 each.
+      expect(best.score + best.specials * 2_500).toBeGreaterThanOrEqual(hintScore);
       game.swap(best.a, best.b);
     }
   });
@@ -561,7 +786,7 @@ describe("bestSetupMove (two-move lookahead)", () => {
   });
 
   it("is at least as valuable over two moves as playing greedily", () => {
-    const value = (score: number, specials: number) => score + specials * 150;
+    const value = (score: number, specials: number) => score + specials * 2_500;
     for (const seed of [42, 31337]) {
       const game = new Game({ seed });
       const plan = game.bestSetupMove();
