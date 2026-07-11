@@ -86,6 +86,7 @@ export class GameScene extends Phaser.Scene {
   private bestMoveFx: Phaser.GameObjects.GameObject[] = [];
 
   private shownScore = 0;
+  private lastScoreTextAt = 0;
   private best = 0;
   private lastMilestone = 0;
   private scoreText!: Phaser.GameObjects.Text;
@@ -181,7 +182,14 @@ export class GameScene extends Phaser.Scene {
         this.shownScore < target
           ? Math.min(target, this.shownScore + step)
           : Math.max(target, this.shownScore - step);
-      this.scoreText.setText(Math.round(this.shownScore).toLocaleString());
+      // Rasterizing this Text re-renders its canvas and re-uploads a GPU
+      // texture, so while the counter ticks we refresh it at ~12Hz (or when it
+      // lands on the target) instead of every frame.
+      const settled = Math.round(this.shownScore) === target;
+      if (settled || time - this.lastScoreTextAt >= 80) {
+        this.lastScoreTextAt = time;
+        this.scoreText.setText(Math.round(this.shownScore).toLocaleString());
+      }
       const scale = 1 + Math.min(Math.abs(target - this.shownScore) / 150_000, 0.1);
       this.scoreText.setScale(scale);
     } else {
@@ -238,9 +246,21 @@ export class GameScene extends Phaser.Scene {
       ease: "Sine.easeInOut",
     });
 
-    const veil = this.add.graphics();
-    veil.fillGradientStyle(0x05000c, 0x05000c, 0x130019, 0x130019, 0.18, 0.12, 0.28, 0.44);
-    veil.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    // A Graphics veil would be re-triangulated on every frame; a thin gradient
+    // strip stretched over the screen renders as one cached, batched quad.
+    if (!this.textures.exists("veil_grad")) {
+      const canvas = this.textures.createCanvas("veil_grad", 2, 256);
+      if (canvas) {
+        const ctx = canvas.getContext();
+        const grad = ctx.createLinearGradient(0, 0, 0, 256);
+        grad.addColorStop(0, "rgba(5, 0, 12, 0.15)");
+        grad.addColorStop(1, "rgba(19, 0, 25, 0.36)");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 2, 256);
+        canvas.refresh();
+      }
+    }
+    this.add.image(0, 0, "veil_grad").setOrigin(0).setDisplaySize(GAME_WIDTH, GAME_HEIGHT);
 
     const dust = this.add.particles(GAME_WIDTH / 2, GAME_HEIGHT / 2, "particle_soft", {
       x: { min: -GAME_WIDTH / 2, max: GAME_WIDTH / 2 },
@@ -264,29 +284,41 @@ export class GameScene extends Phaser.Scene {
     const w = COLS * CELL + pad * 2;
     const h = ROWS * CELL + pad * 2;
 
-    const outerGlow = this.add.graphics();
-    outerGlow.fillStyle(0xff2bd6, 0.13);
-    outerGlow.fillRoundedRect(x - 9, y - 9, w + 18, h + 18, 34);
-    outerGlow.lineStyle(8, 0x36f1ff, 0.22);
-    outerGlow.strokeRoundedRect(x - 4, y - 4, w + 8, h + 8, 31);
+    // Phaser re-triangulates a Graphics object's entire command list on every
+    // frame, and this chrome holds 128+ rounded rects. It never changes, so we
+    // draw it once into a texture and display that as a single batched image.
+    const texW = w + 18;
+    const texH = h + 18;
+    const ox = x - 9;
+    const oy = y - 9;
+    if (!this.textures.exists("board_chrome")) {
+      const gfx = this.make.graphics();
+      gfx.fillStyle(0xff2bd6, 0.13);
+      gfx.fillRoundedRect(0, 0, w + 18, h + 18, 34);
+      gfx.lineStyle(8, 0x36f1ff, 0.22);
+      gfx.strokeRoundedRect(5, 5, w + 8, h + 8, 31);
 
-    const panel = this.add.graphics();
-    panel.fillStyle(0x05000d, 0.87);
-    panel.fillRoundedRect(x, y, w, h, 27);
-    panel.lineStyle(5, 0xffd94a, 0.92);
-    panel.strokeRoundedRect(x, y, w, h, 27);
-    panel.lineStyle(2, 0xffffff, 0.56);
-    panel.strokeRoundedRect(x + 7, y + 7, w - 14, h - 14, 21);
+      gfx.fillStyle(0x05000d, 0.87);
+      gfx.fillRoundedRect(9, 9, w, h, 27);
+      gfx.lineStyle(5, 0xffd94a, 0.92);
+      gfx.strokeRoundedRect(9, 9, w, h, 27);
+      gfx.lineStyle(2, 0xffffff, 0.56);
+      gfx.strokeRoundedRect(16, 16, w - 14, h - 14, 21);
 
-    const cells = this.add.graphics();
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
-        cells.fillStyle((r + c) % 2 === 0 ? 0x240939 : 0x071b32, 0.68);
-        cells.fillRoundedRect(BOARD_X + c * CELL + 3, BOARD_Y + r * CELL + 3, CELL - 6, CELL - 6, 15);
-        cells.lineStyle(1.5, ACCENTS[(r + c) % ACCENTS.length] ?? 0xffffff, 0.16);
-        cells.strokeRoundedRect(BOARD_X + c * CELL + 5, BOARD_Y + r * CELL + 5, CELL - 10, CELL - 10, 13);
+      const cellOx = BOARD_X - ox;
+      const cellOy = BOARD_Y - oy;
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          gfx.fillStyle((r + c) % 2 === 0 ? 0x240939 : 0x071b32, 0.68);
+          gfx.fillRoundedRect(cellOx + c * CELL + 3, cellOy + r * CELL + 3, CELL - 6, CELL - 6, 15);
+          gfx.lineStyle(1.5, ACCENTS[(r + c) % ACCENTS.length] ?? 0xffffff, 0.16);
+          gfx.strokeRoundedRect(cellOx + c * CELL + 5, cellOy + r * CELL + 5, CELL - 10, CELL - 10, 13);
+        }
       }
+      gfx.generateTexture("board_chrome", texW, texH);
+      gfx.destroy();
     }
+    this.add.image(ox, oy, "board_chrome").setOrigin(0);
 
     const addBulb = (bx: number, by: number, index: number): void => {
       const bulb = this.add.circle(bx, by, 4.2, ACCENTS[index % ACCENTS.length] ?? 0xffffff, 1);
@@ -430,6 +462,7 @@ export class GameScene extends Phaser.Scene {
     const fx = this.neonButton(498, 1030, 176, this.reducedFx ? "FX: KIND" : "FX: MAX", 0x36f1ff, () => {
       this.reducedFx = !this.reducedFx;
       localStorage.setItem("ottm3.fx", this.reducedFx ? "reduced" : "max");
+      this.setupShader();
       fx.label.setText(this.reducedFx ? "FX: KIND" : "FX: MAX");
       this.banner(this.reducedFx ? "MERELY RIDICULOUS" : "MAXIMUM EVERYTHING", 0x36f1ff, 38);
     });
@@ -587,6 +620,17 @@ export class GameScene extends Phaser.Scene {
 
   private setupShader(): void {
     if (!(this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer)) return;
+    // The post pipeline costs a full-screen render-to-texture pass every
+    // frame, which is the difference between smooth and slideshow on machines
+    // stuck with software WebGL — so FX: KIND drops it entirely.
+    if (this.reducedFx) {
+      if (this.shader) {
+        this.cameras.main.removePostPipeline("Overdrive");
+        this.shader = null;
+      }
+      return;
+    }
+    if (this.shader) return;
     this.cameras.main.setPostPipeline("Overdrive");
     const pipeline = this.cameras.main.getPostPipeline("Overdrive");
     this.shader = (Array.isArray(pipeline) ? pipeline[0] : pipeline) as OverdrivePipeline;
