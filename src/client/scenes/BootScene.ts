@@ -70,9 +70,12 @@ export class BootScene extends Phaser.Scene {
       ctx.save();
       ctx.translate(128, 128);
 
-      const glow = ctx.createRadialGradient(0, 0, 22, 0, 0, 116);
-      glow.addColorStop(0, `${ACCENT_CSS[index]}aa`);
-      glow.addColorStop(0.55, `${ACCENT_CSS[index]}38`);
+      // This baked halo is the relic's ambient glow: strong enough that the
+      // board keeps its cosmic bloom without a per-piece additive aura sprite
+      // (which would break sprite batching and cost a draw call per relic).
+      const glow = ctx.createRadialGradient(0, 0, 22, 0, 0, 124);
+      glow.addColorStop(0, `${ACCENT_CSS[index]}c4`);
+      glow.addColorStop(0.55, `${ACCENT_CSS[index]}4a`);
       glow.addColorStop(1, `${ACCENT_CSS[index]}00`);
       ctx.fillStyle = glow;
       ctx.fillRect(-128, -128, 256, 256);

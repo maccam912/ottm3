@@ -49,46 +49,14 @@ export class PieceView extends Phaser.GameObjects.Container {
     this.springBody.add(this.presentation);
     this.add(this.springBody);
 
+    // Rendering order is chosen so a plain relic never changes blend mode:
+    // shadow, relic and gloss all use NORMAL, letting the whole board batch
+    // into a single draw call. Only specials (and the selection halo while
+    // selected) append ADD-blended layers, so those flushes stay rare.
     const shadow = scene.add
       .ellipse(0, CELL * 0.3, CELL * 0.62, CELL * 0.2, 0x05000d, 0.56)
       .setScale(1, 0.72);
     this.presentation.add(shadow);
-
-    this.selectionHalo = scene.add
-      .image(0, 0, "ring")
-      .setTint(accent)
-      .setBlendMode(Phaser.BlendModes.ADD)
-      .setDisplaySize(CELL * 0.94, CELL * 0.94)
-      .setAlpha(0);
-    this.selectionHaloScale = this.selectionHalo.scaleX;
-    this.presentation.add(this.selectionHalo);
-
-    const aura = scene.add
-      .image(0, 0, "particle_soft")
-      .setTint(accent)
-      .setBlendMode(Phaser.BlendModes.ADD)
-      .setDisplaySize(CELL * 1.18, CELL * 1.18)
-      .setAlpha(piece.special === "none" ? 0.22 : 0.48);
-    const auraScale = aura.scaleX;
-    this.presentation.add(aura);
-    this.track(
-      scene.tweens.add({
-        targets: aura,
-        alpha: {
-          from: piece.special === "none" ? 0.13 : 0.34,
-          to: piece.special === "none" ? 0.3 : 0.68,
-        },
-        scale: {
-          from: auraScale * 0.88,
-          to: auraScale * (piece.special === "none" ? 1.04 : 1.16),
-        },
-        duration: piece.special === "none" ? 1120 : 560,
-        delay: (piece.id * 73) % 420,
-        yoyo: true,
-        repeat: -1,
-        ease: "Sine.easeInOut",
-      }),
-    );
 
     const texture = this.relicTexture(piece);
     const relic = scene.add.image(0, 0, texture).setScale(RELIC_SCALE);
@@ -99,10 +67,41 @@ export class PieceView extends Phaser.GameObjects.Container {
     // unavailable (Canvas renderer, battery saver, or reduced quality mode).
     const gloss = scene.add
       .image(-CELL * 0.15, -CELL * 0.2, "particle_soft")
-      .setBlendMode(Phaser.BlendModes.ADD)
       .setDisplaySize(CELL * 0.27, CELL * 0.16)
       .setAlpha(0.38);
     this.presentation.add(gloss);
+
+    this.selectionHalo = scene.add
+      .image(0, 0, "ring")
+      .setTint(accent)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setDisplaySize(CELL * 0.94, CELL * 0.94)
+      .setAlpha(0);
+    this.selectionHaloScale = this.selectionHalo.scaleX;
+    this.presentation.add(this.selectionHalo);
+
+    if (piece.special !== "none") {
+      const aura = scene.add
+        .image(0, 0, "particle_soft")
+        .setTint(accent)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setDisplaySize(CELL * 1.18, CELL * 1.18)
+        .setAlpha(0.48);
+      const auraScale = aura.scaleX;
+      this.presentation.add(aura);
+      this.track(
+        scene.tweens.add({
+          targets: aura,
+          alpha: { from: 0.34, to: 0.68 },
+          scale: { from: auraScale * 0.88, to: auraScale * 1.16 },
+          duration: 560,
+          delay: (piece.id * 73) % 420,
+          yoyo: true,
+          repeat: -1,
+          ease: "Sine.easeInOut",
+        }),
+      );
+    }
     this.track(
       scene.tweens.add({
         targets: gloss,
