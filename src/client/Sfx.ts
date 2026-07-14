@@ -145,6 +145,7 @@ export class Sfx {
       rocketV: 1.14,
       pulse: 0.9,
       nova: 1.26,
+      meteor: 0.8,
       prism: 1.5,
       singularity: 0.68,
     };
@@ -169,6 +170,9 @@ export class Sfx {
         return;
       case "nova":
         this.nova(cascade);
+        return;
+      case "meteor":
+        this.meteor(cascade);
         return;
       case "prism":
         this.prism(cascade);
@@ -208,6 +212,18 @@ export class Sfx {
     this.vibrate([16, 12, 16, 12, 34]);
   }
 
+  meteor(cascade = 1): void {
+    const rate = Math.min(1 + cascade * 0.03, 1.35);
+    // A descending whistle followed by a string of staggered ground impacts.
+    this.tone("sawtooth", 1650, 130, 430, 0.05);
+    this.play("striped_fire", 0.85, 0.7 * rate);
+    this.play("wrapped_blast", 0.95, 0.82 * rate, 0, -0.3, 0.16);
+    this.play("wrapped_blast", 0.85, 0.94 * rate, 0, 0.3, 0.32);
+    this.play("pop_c", 0.7, 0.66 * rate, 0, 0, 0.46);
+    this.tone("sine", 92, 36, 320, 0.1, 180);
+    this.vibrate([14, 10, 20, 10, 20, 10, 32]);
+  }
+
   prism(cascade = 1): void {
     const rate = Math.min(1 + cascade * 0.025, 1.35);
     this.play("colorbomb", 1, rate);
@@ -239,7 +255,7 @@ export class Sfx {
           ? 5
           : text.includes("prism")
             ? 4
-            : text.includes("nova")
+            : text.includes("nova") || text.includes("meteor")
               ? 3
               : text.includes("pulse")
                 ? 2

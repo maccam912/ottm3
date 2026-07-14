@@ -6,6 +6,7 @@ export type Special =
   | "rocketV"
   | "pulse"
   | "nova"
+  | "meteor"
   | "prism"
   | "singularity";
 
@@ -17,11 +18,16 @@ export type ComboKind =
   | "rocket-pulse"
   | "rocket-nova"
   | "rocket-prism"
+  | "rocket-meteor"
   | "pulse-pulse"
   | "pulse-nova"
   | "pulse-prism"
+  | "pulse-meteor"
   | "nova-nova"
   | "nova-prism"
+  | "meteor-nova"
+  | "meteor-prism"
+  | "meteor-meteor"
   | "prism-prism"
   | "singularity";
 
@@ -47,12 +53,13 @@ export type Effect =
   | { kind: "laser"; r: number; c: number; axis: "h" | "v" }
   | { kind: "pulse"; r: number; c: number; radius: number }
   | { kind: "nova"; r: number; c: number; radius: number }
+  | { kind: "meteor"; r: number; c: number; strikes: Cell[] }
   | {
       kind: "prism";
       r: number;
       c: number;
       color: number;
-      mode: "clear" | "rocket-rain" | "blast-field" | "cross-storm";
+      mode: "clear" | "rocket-rain" | "blast-field" | "cross-storm" | "meteor-storm";
     }
   | { kind: "singularity"; r: number; c: number }
   | { kind: "combo"; r: number; c: number; combo: ComboKind; color?: number };

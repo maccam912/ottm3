@@ -55,16 +55,49 @@ const FUSION_TITLES: Record<ComboKind, string> = {
   "rocket-pulse": "THUNDER GRID",
   "rocket-nova": "FIVE-LANE ARMAGEDDON",
   "rocket-prism": "RAINBOW ROCKET RAIN",
+  "rocket-meteor": "ORBITAL STRIKE",
   "pulse-pulse": "DOUBLE CRATER",
   "pulse-nova": "SUPERNOVA STAMPEDE",
   "pulse-prism": "RAINBOW MINEFIELD",
+  "pulse-meteor": "CARPET BOMBING",
   "nova-nova": "STAR SYSTEM FAILURE",
   "nova-prism": "PRISMATIC APOCALYPSE",
+  "meteor-nova": "EXTINCTION EVENT",
+  "meteor-prism": "CHROMATIC HAILSTORM",
+  "meteor-meteor": "DOUBLE IMPACT",
   "prism-prism": "DOUBLE RAINBOW DOOM",
   singularity: "THE BIGGEST BANG",
 };
 
+/** Fusions big enough to justify a bullet-time moment. */
+const SLOW_MO_COMBOS: ReadonlySet<ComboKind> = new Set([
+  "rocket-prism",
+  "nova-nova",
+  "nova-prism",
+  "meteor-prism",
+  "meteor-meteor",
+  "prism-prism",
+  "singularity",
+]);
+
 const STAGE_MOVES = 15;
+
+/** Per-stage special modes. Stage 1 is classic; each next stage draws one. */
+interface StageMode {
+  id: "classic" | "gold" | "disco" | "meteor" | "metal";
+  title: string;
+  blurb: string;
+  tint: number;
+}
+
+const STAGE_MODES: StageMode[] = [
+  { id: "gold", title: "GOLD RUSH", blurb: "HYPE CHARGES TWICE AS FAST", tint: 0xffe34e },
+  { id: "disco", title: "DISCO INFERNO", blurb: "REALITY CYCLES EVERY HUE", tint: 0xff2bd6 },
+  { id: "meteor", title: "METEOR WEATHER", blurb: "COSMIC DEBRIS INBOUND", tint: 0xff9d45 },
+  { id: "metal", title: "HEAVY METAL", blurb: "EXTRA SHAKE • EXTRA SHRAPNEL", tint: 0x36f1ff },
+];
+
+const CLASSIC_MODE: StageMode = { id: "classic", title: "", blurb: "", tint: 0xffffff };
 
 export class GameScene extends Phaser.Scene {
   private engine!: Game;
@@ -82,6 +115,7 @@ export class GameScene extends Phaser.Scene {
   private lastAction = 0;
 
   private autoplay = false;
+  private autoBtnLabel: Phaser.GameObjects.Text | null = null;
   private runToken = 0;
   private bestMoveFx: Phaser.GameObjects.GameObject[] = [];
 
@@ -116,11 +150,18 @@ export class GameScene extends Phaser.Scene {
   private reducedFx = false;
   private recipes: Phaser.GameObjects.Container | null = null;
 
+  private slowMoFactor = 1;
+  private feverUntil = 0;
+  private stageMode: StageMode = CLASSIC_MODE;
+  private modeText!: Phaser.GameObjects.Text;
+  private hypeEmitter: Phaser.GameObjects.Particles.ParticleEmitter | null = null;
+  private nextAmbientMeteor = 0;
+
   constructor() {
     super("game");
   }
 
-  create(data: { seed?: number }): void {
+  create(data: { seed?: number; autoplay?: boolean }): void {
     const url = new URL(window.location.href);
     const urlSeed = url.searchParams.get("seed");
     const seed = data.seed ?? (urlSeed ? Number(urlSeed) : (Math.random() * 2 ** 31) | 0);
@@ -145,10 +186,19 @@ export class GameScene extends Phaser.Scene {
     this.trauma = 0;
     this.zoomKick = 0;
     this.shaderKick = 0;
-    this.autoplay = false;
+    // ZEN MODE survives a restart so the chaos never needs a human.
+    this.autoplay = data.autoplay === true;
     this.gameOver = false;
     this.runToken++;
     this.bestMoveFx = [];
+    this.slowMoFactor = 1;
+    this.feverUntil = 0;
+    this.stageMode = CLASSIC_MODE;
+    this.hypeEmitter = null;
+    this.nextAmbientMeteor = 0;
+    // A restart can arrive mid-hitstop or mid-bullet-time.
+    this.tweens.timeScale = 1;
+    this.time.timeScale = 1;
     this.best = Number(localStorage.getItem("ottm3.best") ?? 0);
     this.reducedFx =
       localStorage.getItem("ottm3.fx") === "reduced" ||
@@ -172,6 +222,11 @@ export class GameScene extends Phaser.Scene {
     this.sfx.startMusic();
 
     void this.entrance();
+    // The loop idles while the entrance animation holds the board locked.
+    if (this.autoplay) {
+      this.setAutoButton();
+      void this.autoplayLoop(this.runToken);
+    }
   }
 
   override update(time: number, dt: number): void {
@@ -196,7 +251,10 @@ export class GameScene extends Phaser.Scene {
       this.scoreText.setScale(1);
     }
 
-    for (const view of this.views.values()) view.updatePhysics(dt);
+    // Spring physics honor bullet time: during a slow-mo moment the whole
+    // board's wobble runs at the same dilated rate as the tweens.
+    const physicsDt = dt * this.tweens.timeScale;
+    for (const view of this.views.values()) view.updatePhysics(physicsDt);
 
     this.trauma = Math.max(0, this.trauma - dt * (this.reducedFx ? 0.0048 : 0.0029));
     this.zoomKick = Math.max(0, this.zoomKick - dt * 0.00009);
@@ -207,12 +265,28 @@ export class GameScene extends Phaser.Scene {
     );
     camera.setZoom(1 + this.zoomKick + (this.overdriveTurns > 0 ? Math.sin(time * 0.008) * 0.002 : 0));
 
+    const fever = time < this.feverUntil;
     this.shaderKick = Math.max(0, this.shaderKick - dt * (this.reducedFx ? 0.0035 : 0.0017));
     if (this.shader) {
       const overdrive = this.overdriveTurns > 0 ? 0.24 : 0;
       this.shader.intensity = this.reducedFx
         ? Math.min(0.12, this.shaderKick)
-        : Phaser.Math.Clamp(this.shaderKick + overdrive + (this.hype / 100) * 0.09, 0, 1);
+        : Phaser.Math.Clamp(this.shaderKick + overdrive + (this.hype / 100) * 0.09 + (fever ? 0.12 : 0), 0, 1);
+      const spinning = fever || this.stageMode.id === "disco";
+      const targetHue = spinning ? (time * 0.00022) % 1 : 0;
+      this.shader.hue = spinning ? targetHue : this.shader.hue * Math.max(0, 1 - dt / 240);
+      const slowTarget = this.slowMoFactor < 1 ? 1 : 0;
+      this.shader.slowMo = Phaser.Math.Linear(this.shader.slowMo, slowTarget, Math.min(1, dt / 110));
+    }
+
+    if (this.hypeEmitter) {
+      const hot = !this.reducedFx && (this.overdriveTurns > 0 || fever);
+      if (this.hypeEmitter.emitting !== hot) this.hypeEmitter.emitting = hot;
+    }
+
+    if (this.stageMode.id === "meteor" && !this.reducedFx && time > this.nextAmbientMeteor) {
+      this.nextAmbientMeteor = time + Phaser.Math.Between(500, 1400);
+      this.ambientMeteor();
     }
 
     for (let i = 0; i < this.bulbRing.length; i++) {
@@ -275,6 +349,61 @@ export class GameScene extends Phaser.Scene {
       blendMode: Phaser.BlendModes.ADD,
     });
     dust.setDepth(0.5);
+
+    // Overdrive/FEVER sparks: a curtain of rising embers along the bottom of
+    // the board that only ignites while the game is running hot.
+    this.hypeEmitter = this.add.particles(GAME_WIDTH / 2, BOARD_Y + ROWS * CELL + 8, "star", {
+      x: { min: -(COLS * CELL) / 2, max: (COLS * CELL) / 2 },
+      speedY: { min: -320, max: -130 },
+      speedX: { min: -40, max: 40 },
+      scale: { start: 0.34, end: 0 },
+      alpha: { start: 0.9, end: 0 },
+      lifespan: { min: 700, max: 1500 },
+      frequency: 45,
+      rotate: { min: -180, max: 180 },
+      tint: [...ACCENTS, 0xffffff],
+      blendMode: Phaser.BlendModes.ADD,
+      emitting: false,
+    });
+    this.hypeEmitter.setDepth(0.6);
+  }
+
+  /** Decorative METEOR WEATHER debris streaking across the arena background. */
+  private ambientMeteor(): void {
+    const fromLeft = Math.random() < 0.5;
+    const startX = fromLeft ? -60 : GAME_WIDTH + 60;
+    const startY = Phaser.Math.Between(-40, GAME_HEIGHT * 0.45);
+    const rock = this.add
+      .image(startX, startY, "star")
+      .setTint(Math.random() < 0.5 ? 0xff9d45 : 0xffb347)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setScale(Phaser.Math.FloatBetween(0.2, 0.5))
+      .setAlpha(0.85)
+      .setDepth(0.55);
+    const trail = this.add.particles(0, 0, "particle_soft", {
+      follow: rock,
+      speed: { min: 5, max: 30 },
+      scale: { start: 0.3, end: 0 },
+      alpha: { start: 0.5, end: 0 },
+      lifespan: 420,
+      frequency: 22,
+      tint: [0xff7a2b, 0xffb347],
+      blendMode: Phaser.BlendModes.ADD,
+    });
+    trail.setDepth(0.55);
+    const drop = Phaser.Math.Between(260, 620);
+    this.tweens.add({
+      targets: rock,
+      x: fromLeft ? GAME_WIDTH + 80 : -80,
+      y: startY + drop,
+      angle: fromLeft ? 220 : -220,
+      duration: Phaser.Math.Between(900, 1500),
+      ease: "Linear",
+      onComplete: () => {
+        trail.destroy();
+        rock.destroy();
+      },
+    });
   }
 
   private drawBoardChrome(): void {
@@ -446,9 +575,18 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(1, 0.5);
     this.hypeGfx = this.add.graphics();
+    this.modeText = this.add
+      .text(GAME_WIDTH - 42, 210, "", {
+        fontFamily: FONT,
+        fontSize: "14px",
+        color: "#ffe34e",
+        stroke: "#08000d",
+        strokeThickness: 4,
+      })
+      .setOrigin(1, 0.5);
 
     const footer = this.add
-      .text(GAME_WIDTH / 2, BOARD_Y + ROWS * CELL + 48, "FUSE ANY TWO POWERUPS • 15 UNIQUE CATASTROPHES", {
+      .text(GAME_WIDTH / 2, BOARD_Y + ROWS * CELL + 48, "FUSE ANY TWO POWERUPS • 21 UNIQUE CATASTROPHES", {
         fontFamily: FONT,
         fontSize: "18px",
         color: "#ffe34e",
@@ -457,21 +595,23 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    const hint = this.neonButton(118, 1030, 176, "BEST MOVE", 0xffd83d, () => this.showBestMove());
-    const lab = this.neonButton(308, 1030, 176, "POWERUP LAB", 0xff2bd6, () => this.toggleRecipes());
-    const fx = this.neonButton(498, 1030, 176, this.reducedFx ? "FX: KIND" : "FX: MAX", 0x36f1ff, () => {
+    const hint = this.neonButton(85, 1030, 140, "BEST MOVE", 0xffd83d, () => this.showBestMove());
+    const auto = this.neonButton(224, 1030, 100, "ZEN: OFF", 0xb56cff, () => this.toggleAutoplay());
+    this.autoBtnLabel = auto.label;
+    const lab = this.neonButton(373, 1030, 160, "POWERUP LAB", 0xff2bd6, () => this.toggleRecipes());
+    const fx = this.neonButton(534, 1030, 124, this.reducedFx ? "FX: KIND" : "FX: MAX", 0x36f1ff, () => {
       this.reducedFx = !this.reducedFx;
       localStorage.setItem("ottm3.fx", this.reducedFx ? "reduced" : "max");
       this.setupShader();
       fx.label.setText(this.reducedFx ? "FX: KIND" : "FX: MAX");
       this.banner(this.reducedFx ? "MERELY RIDICULOUS" : "MAXIMUM EVERYTHING", 0x36f1ff, 38);
     });
-    const sound = this.neonButton(630, 1030, 78, this.sfx.muted ? "OFF" : "SFX", 0x55ff8a, () => {
+    const sound = this.neonButton(655, 1030, 80, this.sfx.muted ? "OFF" : "SFX", 0x55ff8a, () => {
       sound.label.setText(this.sfx.toggleMute() ? "OFF" : "SFX");
     });
 
     const rule = this.add
-      .text(GAME_WIDTH / 2, 1091, "4=ROCKET  •  2×2=PULSE  •  T/L=NOVA  •  5=PRISM  •  6+=SINGULARITY", {
+      .text(GAME_WIDTH / 2, 1091, "4=ROCKET • 2×2=PULSE • T/L=NOVA • 2×3=METEOR • 5=PRISM • 6+=SINGULARITY", {
         fontFamily: BODY_FONT,
         fontStyle: "bold",
         fontSize: "15px",
@@ -499,7 +639,9 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
-    restart.on("pointerdown", () => this.scene.restart({ seed: (Math.random() * 2 ** 31) | 0 }));
+    restart.on("pointerdown", () =>
+      this.scene.restart({ seed: (Math.random() * 2 ** 31) | 0, autoplay: this.autoplay }),
+    );
 
     this.hudLayer.add([
       titleShadowA,
@@ -515,8 +657,10 @@ export class GameScene extends Phaser.Scene {
       this.progressGfx,
       this.hypeText,
       this.hypeGfx,
+      this.modeText,
       footer,
       hint.container,
+      auto.container,
       lab.container,
       fx.container,
       sound.container,
@@ -735,8 +879,19 @@ export class GameScene extends Phaser.Scene {
 
   private toggleAutoplay(): void {
     this.autoplay = !this.autoplay;
-    if (this.autoplay) void this.autoplayLoop(this.runToken);
-    else this.clearBestMoveFx();
+    this.setAutoButton();
+    if (this.autoplay) {
+      this.banner("ZEN MODE • WATCH THE CHAOS", 0xb56cff, 40);
+      void this.autoplayLoop(this.runToken);
+    } else {
+      this.banner("MANUAL CONTROL RESTORED", 0xb56cff, 36);
+      this.clearBestMoveFx();
+    }
+  }
+
+  private setAutoButton(): void {
+    this.autoBtnLabel?.setText(this.autoplay ? "ZEN: ON" : "ZEN: OFF");
+    this.autoBtnLabel?.setColor(this.autoplay ? "#ffe34e" : "#ffffff");
   }
 
   private async autoplayLoop(token: number): Promise<void> {
@@ -807,8 +962,13 @@ export class GameScene extends Phaser.Scene {
         "ottm3.bestStage",
         String(Math.max(this.stage, Number(localStorage.getItem("ottm3.bestStage") ?? 1))),
       );
+      this.stageMode = STAGE_MODES[Math.floor(Math.random() * STAGE_MODES.length)] ?? CLASSIC_MODE;
+      this.nextAmbientMeteor = 0;
       this.updateStageHud();
       this.banner(`STAGE ${this.stage}: GO LOUDER`, ACCENTS[this.stage % ACCENTS.length] ?? 0xffffff, 46);
+      await this.delay(this.reducedFx ? 300 : 700);
+      this.fusionTitle(`STAGE ${this.stage} MODIFIER`, `${this.stageMode.title} — ${this.stageMode.blurb}`);
+      this.confetti(GAME_WIDTH / 2, BOARD_Y - 20, 60);
       this.locked = false;
     } else {
       this.showResults();
@@ -817,7 +977,6 @@ export class GameScene extends Phaser.Scene {
 
   private showResults(): void {
     this.gameOver = true;
-    this.autoplay = false;
     this.clearBestMoveFx();
     const overlay = this.add.container(0, 0).setDepth(5000);
     const dim = this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x050009, 0.9);
@@ -868,10 +1027,42 @@ export class GameScene extends Phaser.Scene {
         color: "#ffffff",
       })
       .setOrigin(0.5);
-    button.setInteractive({ useHandCursor: true }).on("pointerdown", () => {
-      this.scene.restart({ seed: (Math.random() * 2 ** 31) | 0 });
-    });
+    const restart = (): void => {
+      this.scene.restart({ seed: (Math.random() * 2 ** 31) | 0, autoplay: this.autoplay });
+    };
+    button.setInteractive({ useHandCursor: true }).on("pointerdown", restart);
     overlay.add([dim, panel, header, sub, stats, button, buttonText]);
+
+    // ZEN MODE never stops for a results screen: count down and re-detonate.
+    if (this.autoplay) {
+      const zen = this.add
+        .text(GAME_WIDTH / 2, 890, "", {
+          fontFamily: BODY_FONT,
+          fontStyle: "bold",
+          fontSize: "18px",
+          color: "#b56cff",
+        })
+        .setOrigin(0.5);
+      overlay.add(zen);
+      const token = this.runToken;
+      let remaining = 3;
+      const tick = (): void => {
+        if (token !== this.runToken) return;
+        if (!this.autoplay) {
+          zen.setText("");
+          return;
+        }
+        if (remaining <= 0) {
+          restart();
+          return;
+        }
+        zen.setText(`ZEN MODE RE-DETONATES IN ${remaining}…`);
+        remaining--;
+        this.time.delayedCall(1000, tick);
+      };
+      tick();
+    }
+
     overlay.setScale(0.6).setAlpha(0);
     this.tweens.add({ targets: overlay, scale: 1, alpha: 1, duration: 360, ease: "Back.easeOut" });
   }
@@ -908,6 +1099,9 @@ export class GameScene extends Phaser.Scene {
           "MAKE A T OR L  →  NOVA",
           "Row + column + core blast",
           "",
+          "MAKE A 2×3 BLOCK  →  METEOR",
+          "Orbital strikes rain from above",
+          "",
           "MATCH 5  →  PRISM",
           "Erases one entire color",
           "",
@@ -915,7 +1109,7 @@ export class GameScene extends Phaser.Scene {
           "The board files a complaint",
           "",
           "FUSE ANY TWO POWERUPS",
-          "15 combinations. Every pair is different.",
+          "21 combinations. Every pair is different.",
         ].join("\n"),
         {
           fontFamily: BODY_FONT,
@@ -954,6 +1148,9 @@ export class GameScene extends Phaser.Scene {
     this.progressGfx.fillRoundedRect(42, 222, GAME_WIDTH - 84, 11, 6);
     this.progressGfx.fillGradientStyle(0x55ff8a, 0x36f1ff, 0xff2bd6, 0xffe34e, 1);
     this.progressGfx.fillRoundedRect(42, 222, (GAME_WIDTH - 84) * progress, 11, 6);
+
+    this.modeText.setText(this.stageMode.id === "classic" ? "" : `MODE: ${this.stageMode.title}`);
+    this.modeText.setColor(`#${this.stageMode.tint.toString(16).padStart(6, "0")}`);
 
     this.hypeText.setText(this.overdriveTurns > 0 ? `OVERDRIVE • ${this.overdriveTurns} TURNS` : `HYPE ${Math.floor(this.hype)}%`);
     this.hypeText.setColor(this.overdriveTurns > 0 ? "#ffffff" : "#ff74e8");
@@ -1037,14 +1234,38 @@ export class GameScene extends Phaser.Scene {
       va.gridR = a.r;
       va.gridC = a.c;
       this.piecesLayer.bringToTop(va);
+      this.swapTrail(va, cellX(a.c), cellY(a.r), a.color);
       jobs.push(this.tween({ targets: va, x: cellX(a.c), y: cellY(a.r), duration: 135, ease: "Back.easeOut" }));
     }
     if (vb) {
       vb.gridR = b.r;
       vb.gridC = b.c;
+      this.swapTrail(vb, cellX(b.c), cellY(b.r), b.color);
       jobs.push(this.tween({ targets: vb, x: cellX(b.c), y: cellY(b.r), duration: 135, ease: "Back.easeOut" }));
     }
     await Promise.all(jobs);
+  }
+
+  /** A neon streak left behind a relic sliding to its new cell. */
+  private swapTrail(view: PieceView, toX: number, toY: number, color: number): void {
+    if (this.reducedFx) return;
+    const tint = color < 0 ? 0xffffff : (ACCENTS[color] ?? 0xffffff);
+    const streak = this.add
+      .image((view.x + toX) / 2, (view.y + toY) / 2, "particle_soft")
+      .setTint(tint)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setAlpha(0.6)
+      .setRotation(Math.atan2(toY - view.y, toX - view.x));
+    streak.setDisplaySize(CELL * 1.7, CELL * 0.42);
+    this.fxLayer.add(streak);
+    this.tweens.add({
+      targets: streak,
+      alpha: 0,
+      scaleY: 0.1,
+      duration: 210,
+      ease: "Quad.easeOut",
+      onComplete: () => streak.destroy(),
+    });
   }
 
   private async animInvalid(a: PlacedPiece, b: PlacedPiece): Promise<void> {
@@ -1087,12 +1308,28 @@ export class GameScene extends Phaser.Scene {
     const cx = pieces.length > 0 ? pieces.reduce((sum, p) => sum + cellX(p.c), 0) / pieces.length : GAME_WIDTH / 2;
     const cy = pieces.length > 0 ? pieces.reduce((sum, p) => sum + cellY(p.r), 0) / pieces.length : BOARD_Y + (ROWS * CELL) / 2;
     this.applyImpact(cx, cy, impact, cascade, fusion);
+    const hypeRate = (this.stageMode.id === "gold" ? 2 : 1) * (this.time.now < this.feverUntil ? 1.5 : 1);
     this.hype = Phaser.Math.Clamp(
-      this.hype + pieces.length + created.length * 5 + Math.max(0, cascade - 1) * 8 + (fusion ? 20 : 0),
+      this.hype +
+        (pieces.length + created.length * 5 + Math.max(0, cascade - 1) * 8 + (fusion ? 20 : 0)) * hypeRate,
       0,
       100,
     );
     this.updateStageHud();
+
+    // Deep cascades ignite FEVER: hue-cycling reality, spark curtain, faster
+    // hype — and the first frames of the biggest events play in bullet time.
+    if (cascade >= 4) {
+      const alreadyFever = this.time.now < this.feverUntil;
+      this.feverUntil = this.time.now + 8_000;
+      if (!alreadyFever) {
+        this.sfx.overdrive(2);
+        this.banner("FEVER TIME!", 0xff74e8, 56);
+        this.confetti(GAME_WIDTH / 2, BOARD_Y, 70);
+      }
+    }
+    if (combo && SLOW_MO_COMBOS.has(combo.combo)) this.slowMoMoment(0.22, 620);
+    else if (cascade >= 5 || impact >= 0.96) this.slowMoMoment(0.42, 380);
 
     await this.hitstop(impact);
     for (const effect of effects) this.playEffect(effect);
@@ -1122,7 +1359,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private applyImpact(x: number, y: number, impact: number, cascade: number, fusion: boolean): void {
-    const scaled = this.reducedFx ? impact * 0.35 : impact;
+    const metal = this.stageMode.id === "metal" && !this.reducedFx ? 1.4 : 1;
+    const scaled = (this.reducedFx ? impact * 0.35 : impact) * metal;
     this.trauma = Phaser.Math.Clamp(this.trauma + scaled * 0.82, 0, 1);
     this.zoomKick = Math.max(this.zoomKick, scaled * (fusion ? 0.032 : 0.016));
     this.shaderKick = Math.max(this.shaderKick, scaled * (fusion ? 1 : 0.58));
@@ -1150,8 +1388,11 @@ export class GameScene extends Phaser.Scene {
     this.sfx.pop(cascade, index);
     const accent = piece.color < 0 ? 0xffffff : (ACCENTS[piece.color] ?? 0xffffff);
     const count = this.reducedFx ? 3 : 6 + Math.floor(impact * 8);
-    this.burst(view.x, view.y, "shard", accent, count, 170 + impact * 210, 0.42);
+    this.burst(view.x, view.y, "shard", accent, count, 170 + impact * 210, 0.42, Phaser.BlendModes.NORMAL, !this.reducedFx);
     this.burst(view.x, view.y, "particle_soft", accent, this.reducedFx ? 2 : 5, 70, 0.85, Phaser.BlendModes.ADD);
+    if (!this.reducedFx && cascade >= 2) {
+      this.burst(view.x, view.y, "star", 0xffffff, 2 + Math.min(cascade, 5), 200 + cascade * 40, 0.3, Phaser.BlendModes.ADD);
+    }
     await this.tween({ targets: view, scale: { from: 1, to: 1.24 + impact * 0.22 }, duration: 48, ease: "Quad.easeOut" });
     await this.tween({ targets: view, scale: 0, alpha: 0, angle: Phaser.Math.Between(-30, 30), duration: 95, ease: "Back.easeIn" });
     view.destroy();
@@ -1164,6 +1405,7 @@ export class GameScene extends Phaser.Scene {
       rocketV: "ROCKET ONLINE!",
       pulse: "PULSE CHARGED!",
       nova: "NOVA BORN!",
+      meteor: "METEOR INBOUND!",
       prism: "PRISM JACKPOT!",
       singularity: "SINGULARITY!!!",
     };
@@ -1231,6 +1473,10 @@ export class GameScene extends Phaser.Scene {
         other.impact(2.5 + distance, other.gridC < view.gridC ? Math.PI : 0);
       }
     }
+    // Long falls kick up a puff of dust where the relic lands.
+    if (!this.reducedFx && distance >= 2) {
+      this.burst(view.x, view.y + CELL * 0.32, "particle_soft", 0xb9a6d9, 3, 60 + distance * 14, 0.4, Phaser.BlendModes.ADD);
+    }
     await this.tween({
       targets: view,
       scaleY: 0.8,
@@ -1286,6 +1532,7 @@ export class GameScene extends Phaser.Scene {
         break;
       case "pulse":
         this.sfx.pulse?.();
+        this.explosion(cellX(c), cellY(r), 0xff2bd6, 0.45 + effect.radius * 0.2);
         for (let i = 0; i < Math.max(2, effect.radius); i++) {
           this.time.delayedCall(i * 70, () => this.shockwave(cellX(c), cellY(r), i % 2 ? 0xffe34e : 0xff2bd6, 0.7 + i * 0.28));
         }
@@ -1293,6 +1540,10 @@ export class GameScene extends Phaser.Scene {
       case "nova":
         this.sfx.nova?.();
         this.novaBlast(cellX(c), cellY(r), effect.radius);
+        this.explosion(cellX(c), cellY(r), 0x36f1ff, 0.7 + effect.radius * 0.12);
+        break;
+      case "meteor":
+        this.meteorShower(effect.strikes);
         break;
       case "prism":
         this.sfx.prism?.();
@@ -1369,13 +1620,17 @@ export class GameScene extends Phaser.Scene {
     for (const view of this.views.values()) {
       view.impact(this.reducedFx ? 4 : 18, Math.atan2(y - view.y, x - view.x));
     }
-    this.time.delayedCall(210, () => this.cameras.main.flash(160, 255, 255, 255));
+    this.slowMoMoment(0.28, 520);
+    this.time.delayedCall(210, () => {
+      this.cameras.main.flash(160, 255, 255, 255);
+      this.explosion(x, y, 0xb56cff, 1.5);
+    });
   }
 
   private fusionEffect(effect: Extract<Effect, { kind: "combo" }>): void {
     const r = Phaser.Math.Clamp(effect.r, 0, ROWS - 1);
     const c = Phaser.Math.Clamp(effect.c, 0, COLS - 1);
-    const huge = ["nova-nova", "prism-prism", "singularity"].includes(effect.combo);
+    const huge = ["nova-nova", "prism-prism", "singularity", "meteor-prism", "meteor-meteor"].includes(effect.combo);
     this.shaderKick = huge ? 1 : Math.max(this.shaderKick, 0.75);
     this.trauma = huge ? 1 : Math.max(this.trauma, 0.75);
     switch (effect.combo) {
@@ -1402,7 +1657,23 @@ export class GameScene extends Phaser.Scene {
         break;
       case "pulse-pulse":
       case "pulse-nova":
+        this.explosion(cellX(c), cellY(r), 0xff2bd6, 1.2);
         for (let i = 0; i < 5; i++) this.time.delayedCall(i * 70, () => this.shockwave(cellX(c), cellY(r), ACCENTS[i % ACCENTS.length] ?? 0xffffff, 0.8 + i * 0.42));
+        break;
+      case "rocket-meteor":
+      case "pulse-meteor":
+      case "meteor-meteor":
+        // The strikes themselves arrive via the meteor effect; this is the
+        // fusion's own point-blank detonation.
+        this.explosion(cellX(c), cellY(r), 0xff7a2b, effect.combo === "meteor-meteor" ? 1.3 : 1);
+        break;
+      case "meteor-nova":
+        this.novaBlast(cellX(c), cellY(r), 4);
+        this.explosion(cellX(c), cellY(r), 0xff7a2b, 1.2);
+        break;
+      case "meteor-prism":
+        this.prismSweep(effect.color ?? -1, "meteor-storm");
+        this.explosion(cellX(c), cellY(r), 0xff7a2b, 1.4);
         break;
       case "rocket-prism":
       case "pulse-prism":
@@ -1431,6 +1702,113 @@ export class GameScene extends Phaser.Scene {
     this.burst(x, y, "shard", tint, this.reducedFx ? 5 : 15, 290, 0.5);
   }
 
+  /**
+   * A full pyrotechnic explosion: white-hot core flash, colored fireball,
+   * shockwave ring, bouncing debris, embers, rising smoke, a shader ripple,
+   * and a jiggle wave through every nearby relic. `power` ~0.4 is a pulse
+   * blast, 1+ is a fusion-grade detonation.
+   */
+  private explosion(x: number, y: number, tint: number, power: number): void {
+    const p = Phaser.Math.Clamp(power, 0.2, 1.6);
+    const flash = this.add
+      .image(x, y, "particle_soft")
+      .setTint(0xffffff)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setScale(0.3)
+      .setAlpha(1);
+    const fireball = this.add
+      .image(x, y, "particle_soft")
+      .setTint(tint)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setScale(0.45)
+      .setAlpha(0.92);
+    this.fxLayer.add([fireball, flash]);
+    this.tweens.add({ targets: flash, scale: 1.7 * p + 0.7, alpha: 0, duration: 190, ease: "Quad.easeOut", onComplete: () => flash.destroy() });
+    this.tweens.add({ targets: fireball, scale: 2.6 * p + 1, alpha: 0, duration: 340, ease: "Cubic.easeOut", onComplete: () => fireball.destroy() });
+    this.shockwave(x, y, tint, 1 + p * 0.9);
+
+    // Debris ricochets off the arena floor instead of politely fading out.
+    this.burst(x, y, "shard", tint, Math.round(9 + p * 15), 250 + p * 280, 0.55, Phaser.BlendModes.NORMAL, true);
+    this.burst(x, y, "particle_soft", 0xffb347, this.reducedFx ? 3 : Math.round(5 + p * 9), 110 + p * 130, 0.6, Phaser.BlendModes.ADD);
+    if (!this.reducedFx) {
+      const smoke = this.add.particles(x, y, "particle_soft", {
+        speed: { min: 15, max: 70 },
+        angle: { min: 220, max: 320 },
+        scale: { start: 0.55 * p + 0.35, end: 1.4 * p + 0.6 },
+        alpha: { start: 0.34, end: 0 },
+        lifespan: { min: 500, max: 1000 },
+        tint: [0x2a1636, 0x3a2149],
+        emitting: false,
+      });
+      smoke.explode(Math.round(3 + p * 4));
+      this.time.delayedCall(1200, () => smoke.destroy());
+    }
+
+    this.jiggleWave(x, y, p);
+    this.shader?.triggerShock(x / GAME_WIDTH, y / GAME_HEIGHT, Math.min(1, p));
+    if (p >= 0.9 && !this.reducedFx) this.cameras.main.flash(70, 255, 208, 160);
+  }
+
+  /**
+   * A pressure wave through the board: every relic near the blast gets a
+   * physics kick, delayed by its distance, so explosions visibly ripple
+   * outward through the jiggling gems instead of hitting them all at once.
+   */
+  private jiggleWave(x: number, y: number, power: number): void {
+    const reach = CELL * (3.5 + power * 4);
+    for (const view of this.views.values()) {
+      const distance = Math.hypot(view.x - x, view.y - y);
+      const falloff = 1 - distance / reach;
+      if (falloff <= 0) continue;
+      const angle = Math.atan2(view.y - y, view.x - x);
+      const force = (this.reducedFx ? 3 : 7 + power * 17) * falloff;
+      this.time.delayedCall(distance * 0.55, () => view.impact(force, angle));
+    }
+  }
+
+  /** Rocks scream in from above and detonate on each strike cell in order. */
+  private meteorShower(strikes: Cell[]): void {
+    this.sfx.meteor?.();
+    strikes.forEach((cell, index) => {
+      this.time.delayedCall(60 + index * 95, () => {
+        const tx = cellX(cell.c);
+        const ty = cellY(cell.r);
+        const sx = tx + Phaser.Math.Between(-170, 170);
+        const rock = this.add
+          .image(sx, ty - 660, "star")
+          .setTint(0xff9d45)
+          .setBlendMode(Phaser.BlendModes.ADD)
+          .setScale(0.7)
+          .setAngle(Phaser.Math.Between(0, 360));
+        this.fxLayer.add(rock);
+        const trail = this.add.particles(0, 0, "particle_soft", {
+          follow: rock,
+          speed: { min: 10, max: 50 },
+          scale: { start: 0.5, end: 0 },
+          alpha: { start: 0.75, end: 0 },
+          lifespan: 300,
+          frequency: 12,
+          tint: [0xff7a2b, 0xffb347, 0xffffff],
+          blendMode: Phaser.BlendModes.ADD,
+        });
+        this.fxLayer.add(trail);
+        this.tweens.add({
+          targets: rock,
+          x: tx,
+          y: ty,
+          angle: `+=${Phaser.Math.Between(120, 300)}`,
+          duration: this.reducedFx ? 110 : 170,
+          ease: "Quad.easeIn",
+          onComplete: () => {
+            rock.destroy();
+            this.time.delayedCall(320, () => trail.destroy());
+            this.explosion(tx, ty, 0xff7a2b, 0.55);
+          },
+        });
+      });
+    });
+  }
+
   private starburst(x: number, y: number, tint: number, maxScale = 3.4): void {
     const flash = this.add.image(x, y, "star").setTint(tint).setBlendMode(Phaser.BlendModes.ADD).setScale(0.35).setAlpha(1);
     this.fxLayer.add(flash);
@@ -1447,21 +1825,36 @@ export class GameScene extends Phaser.Scene {
     speed: number,
     scale: number,
     blend: Phaser.BlendModes = Phaser.BlendModes.NORMAL,
+    bouncy = false,
   ): void {
     const emitter = this.add.particles(x, y, texture, {
       speed: { min: speed * 0.35, max: speed },
       angle: { min: 0, max: 360 },
       scale: { start: scale, end: 0 },
       alpha: { start: 1, end: 0 },
-      lifespan: { min: 280, max: 680 },
+      lifespan: bouncy ? { min: 620, max: 1250 } : { min: 280, max: 680 },
       gravityY: texture === "shard" || texture === "sprinkle" ? 520 : 0,
       rotate: { min: -360, max: 360 },
       tint,
       blendMode: blend,
       emitting: false,
+      // Bouncy debris ricochets around the arena walls and board floor.
+      ...(bouncy
+        ? {
+            bounce: 0.62,
+            bounds: new Phaser.Geom.Rectangle(
+              BOARD_X - 54,
+              -120,
+              COLS * CELL + 108,
+              BOARD_Y + ROWS * CELL + 132,
+            ),
+          }
+        : {}),
     });
-    emitter.explode(this.reducedFx ? Math.max(2, Math.floor(count * 0.4)) : count);
-    this.time.delayedCall(850, () => emitter.destroy());
+    let n = this.reducedFx ? Math.max(2, Math.floor(count * 0.4)) : count;
+    if (this.stageMode.id === "metal" && !this.reducedFx) n = Math.ceil(n * 1.5);
+    emitter.explode(n);
+    this.time.delayedCall(bouncy ? 1400 : 850, () => emitter.destroy());
   }
 
   private confetti(x: number, y: number, count: number): void {
@@ -1637,7 +2030,29 @@ export class GameScene extends Phaser.Scene {
     const duration = 20 + impact * 62;
     this.tweens.timeScale = impact > 0.65 ? 0.06 : 0.18;
     await this.delay(duration);
-    this.tweens.timeScale = 1;
+    // If a bullet-time moment is running, hand back to it instead of 1.
+    this.tweens.timeScale = this.slowMoFactor;
+  }
+
+  /**
+   * A cinematic bullet-time moment: tweens, timers, and the spring physics
+   * all dilate while the shader drains color and drops letterbox bars. The
+   * hold is real-world time (setTimeout), because the scene clock itself is
+   * what's being slowed.
+   */
+  private slowMoMoment(factor: number, holdMs: number): void {
+    if (this.reducedFx || this.slowMoFactor < 1) return;
+    const token = this.runToken;
+    this.slowMoFactor = factor;
+    this.tweens.timeScale = factor;
+    this.time.timeScale = factor;
+    this.zoomKick = Math.max(this.zoomKick, 0.055);
+    window.setTimeout(() => {
+      if (token !== this.runToken) return;
+      this.slowMoFactor = 1;
+      this.tweens.timeScale = 1;
+      this.time.timeScale = 1;
+    }, holdMs);
   }
 
   private async entrance(): Promise<void> {

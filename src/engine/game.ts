@@ -62,6 +62,7 @@ const EFFECT_SCORE: Record<Effect["kind"], number> = {
   laser: 500,
   pulse: 1_200,
   nova: 3_500,
+  meteor: 3_000,
   prism: 6_000,
   singularity: 25_000,
   combo: 0,
@@ -73,11 +74,16 @@ const COMBO_SCORE: Record<ComboKind, number> = {
   "rocket-pulse": 12_000,
   "rocket-nova": 20_000,
   "rocket-prism": 32_000,
+  "rocket-meteor": 16_000,
   "pulse-pulse": 16_000,
   "pulse-nova": 25_000,
   "pulse-prism": 38_000,
+  "pulse-meteor": 18_000,
   "nova-nova": 65_000,
   "nova-prism": 52_000,
+  "meteor-nova": 28_000,
+  "meteor-prism": 45_000,
+  "meteor-meteor": 22_000,
   "prism-prism": 80_000,
   singularity: 100_000,
 };
@@ -425,6 +431,61 @@ export class Game {
       return { seed, effects, consumed };
     }
 
+    if (sa === "meteor" || sb === "meteor") {
+      const other = sa === "meteor" ? sb : sa;
+      const otherPiece = sa === "meteor" ? pb : pa;
+      const meteorPos = sa === "meteor" ? posA : posB;
+      const otherPos = sa === "meteor" ? posB : posA;
+      const plus = (cell: Cell): void => {
+        add(cell.r, cell.c);
+        add(cell.r - 1, cell.c);
+        add(cell.r + 1, cell.c);
+        add(cell.r, cell.c - 1);
+        add(cell.r, cell.c + 1);
+      };
+      if (other === "meteor") {
+        const strikes = this.meteorTargets(8);
+        for (const cell of strikes) square(cell, 1);
+        combo("meteor-meteor", meteorPos);
+        effects.push({ kind: "meteor", r: meteorPos.r, c: meteorPos.c, strikes });
+      } else if (isRocket(other)) {
+        // Ballistic mail: each impact site fires a full lane, alternating axis.
+        const strikes = this.meteorTargets(5);
+        strikes.forEach((cell, index) => {
+          const horizontal = index % 2 === 0 ? other === "rocketH" : other !== "rocketH";
+          if (horizontal) row(cell.r);
+          else col(cell.c);
+        });
+        combo("rocket-meteor", meteorPos);
+        effects.push({ kind: "meteor", r: meteorPos.r, c: meteorPos.c, strikes });
+      } else if (other === "pulse") {
+        const strikes = this.meteorTargets(6);
+        for (const cell of strikes) {
+          square(cell, 1);
+          effects.push({ kind: "pulse", r: cell.r, c: cell.c, radius: 1 });
+        }
+        combo("pulse-meteor", meteorPos);
+        effects.push({ kind: "meteor", r: meteorPos.r, c: meteorPos.c, strikes });
+      } else if (other === "nova") {
+        row(otherPos.r);
+        col(otherPos.c);
+        const strikes = this.meteorTargets(7);
+        for (const cell of strikes) square(cell, 1);
+        combo("meteor-nova", meteorPos);
+        effects.push({ kind: "nova", r: otherPos.r, c: otherPos.c, radius: 1 });
+        effects.push({ kind: "meteor", r: meteorPos.r, c: meteorPos.c, strikes });
+      } else {
+        // Meteor + prism: a strike falls on every relic of the paired color.
+        const color = resolvedColor(otherPiece);
+        const strikes = colorCells(color);
+        for (const cell of strikes) plus(cell);
+        combo("meteor-prism", otherPos, color);
+        effects.push({ kind: "prism", r: otherPos.r, c: otherPos.c, color, mode: "meteor-storm" });
+        effects.push({ kind: "meteor", r: meteorPos.r, c: meteorPos.c, strikes });
+      }
+      return { seed, effects, consumed };
+    }
+
     if (isRocket(sa) && isRocket(sb)) {
       if (sa === sb) {
         const horizontal = sa === "rocketH";
@@ -536,6 +597,26 @@ export class Game {
     return { seed, effects, consumed };
   }
 
+  /** Pick `count` distinct random cells for a meteor bombardment (seeded RNG). */
+  private meteorTargets(count: number): Cell[] {
+    const cells: Cell[] = [];
+    for (let r = 0; r < this.rows; r++) {
+      for (let c = 0; c < this.cols; c++) cells.push({ r, c });
+    }
+    const n = Math.min(count, cells.length);
+    // Partial Fisher-Yates: only the first n slots need shuffling.
+    for (let i = 0; i < n; i++) {
+      const j = i + randInt(this.rng, cells.length - i);
+      const a = cells[i];
+      const b = cells[j];
+      if (a && b) {
+        cells[i] = b;
+        cells[j] = a;
+      }
+    }
+    return cells.slice(0, n);
+  }
+
   /** A lone powerup swapped with a normal piece fires from where it lands. */
   private singleSpecialSeed(
     special: Special,
@@ -572,6 +653,18 @@ export class Game {
         }
         effects.push({ kind: "nova", r: pos.r, c: pos.c, radius: 1 });
         break;
+      case "meteor": {
+        const strikes = this.meteorTargets(4);
+        for (const cell of strikes) {
+          add(cell.r, cell.c);
+          add(cell.r - 1, cell.c);
+          add(cell.r + 1, cell.c);
+          add(cell.r, cell.c - 1);
+          add(cell.r, cell.c + 1);
+        }
+        effects.push({ kind: "meteor", r: pos.r, c: pos.c, strikes });
+        break;
+      }
       case "prism": {
         const color = targetColor !== undefined && targetColor >= 0 ? targetColor : this.mostCommonColor();
         if (color >= 0) {
@@ -763,6 +856,18 @@ export class Game {
             }
             effects.push({ kind: "nova", r, c, radius: 1 });
             break;
+          case "meteor": {
+            const strikes = this.meteorTargets(4);
+            for (const cell of strikes) {
+              add(cell.r, cell.c);
+              add(cell.r - 1, cell.c);
+              add(cell.r + 1, cell.c);
+              add(cell.r, cell.c - 1);
+              add(cell.r, cell.c + 1);
+            }
+            effects.push({ kind: "meteor", r, c, strikes });
+            break;
+          }
           case "prism": {
             // A prism caught in a blast targets the board's most common color.
             const color = this.mostCommonColor();
@@ -940,6 +1045,14 @@ export class Game {
     } else if (longest && longest.cells.length === 5) {
       special = "prism";
       color = WILD_COLOR;
+    } else if (
+      lines.length >= 2 &&
+      lines.every((s) => s.kind === lines[0]?.kind) &&
+      g.shapes.some((s) => s.kind === "sq")
+    ) {
+      // Parallel runs fused through 2x2 squares: a solid 2x3+ block. That is
+      // an asteroid-shaped match, so it manufactures an orbital bombardment.
+      special = "meteor";
     } else if (lines.length >= 2) {
       // Intersecting L/T shape.
       special = "nova";
