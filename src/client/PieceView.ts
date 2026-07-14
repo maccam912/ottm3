@@ -262,6 +262,9 @@ export class PieceView extends Phaser.GameObjects.Container {
       case "nova":
         this.decorateNova(accent);
         return;
+      case "meteor":
+        this.decorateMeteor();
+        return;
       case "prism":
         this.decoratePrism();
         return;
@@ -370,6 +373,48 @@ export class PieceView extends Phaser.GameObjects.Container {
         alpha: { from: 0.38, to: 1 },
         scale: { from: beamScale * 0.86, to: beamScale * 1.16 },
         duration: 330,
+        yoyo: true,
+        repeat: -1,
+        ease: "Sine.easeInOut",
+      }),
+    );
+  }
+
+  private decorateMeteor(): void {
+    // A relic on re-entry: flame corona, tumbling embers, and a heat ring.
+    const heat = this.scene.add
+      .image(0, 0, "particle_soft")
+      .setTint(0xff7a2b)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setDisplaySize(CELL * 1.24, CELL * 1.24)
+      .setAlpha(0.72);
+    const heatScale = heat.scaleX;
+    const ring = this.scene.add
+      .image(0, 0, "double_ring")
+      .setTint(0xff9d45)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setDisplaySize(CELL * 0.84, CELL * 0.84)
+      .setAlpha(0.85);
+    const orbit = this.scene.add.container(0, 0);
+    for (let i = 0; i < 5; i++) {
+      const angle = (i / 5) * Math.PI * 2;
+      const flame = this.scene.add
+        .image(Math.cos(angle) * CELL * 0.36, Math.sin(angle) * CELL * 0.36, "shard")
+        .setTint(i % 2 === 0 ? 0xffb347 : 0xff5a2b)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setDisplaySize(CELL * 0.1, CELL * 0.2)
+        .setAngle(Phaser.Math.RadToDeg(angle) + 90);
+      orbit.add(flame);
+    }
+    this.presentation.add([heat, ring, orbit]);
+    this.track(this.scene.tweens.add({ targets: orbit, angle: -360, duration: 780, repeat: -1 }));
+    this.track(this.scene.tweens.add({ targets: ring, angle: 360, duration: 1350, repeat: -1 }));
+    this.track(
+      this.scene.tweens.add({
+        targets: heat,
+        scale: { from: heatScale * 0.84, to: heatScale * 1.2 },
+        alpha: { from: 0.45, to: 0.92 },
+        duration: 280,
         yoyo: true,
         repeat: -1,
         ease: "Sine.easeInOut",

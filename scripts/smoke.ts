@@ -20,6 +20,9 @@ const CHROME_PATHS = [
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   "/Applications/Chromium.app/Contents/MacOS/Chromium",
   "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+  "/opt/pw-browsers/chromium",
+  "/usr/bin/chromium",
+  "/usr/bin/google-chrome",
 ];
 
 async function serverUp(url: string, timeoutMs = 1000): Promise<boolean> {
@@ -47,11 +50,22 @@ async function main(): Promise<void> {
     if (!up) throw new Error("dev server did not come up");
   }
 
-  const browser = await puppeteer.launch({ executablePath: chrome, headless: true });
+  const browser = await puppeteer.launch({
+    executablePath: chrome,
+    headless: true,
+    // Root-run containers (CI, cloud sandboxes) cannot use the setuid sandbox,
+    // and environment proxies must never intercept the localhost dev server.
+    args: [
+      "--no-proxy-server",
+      ...(process.getuid?.() === 0 ? ["--no-sandbox"] : []),
+    ],
+  });
   try {
     const page = await browser.newPage();
     await page.setViewport({ width: 800, height: 1200 });
-    await page.goto(`${URL_BASE}/?seed=123`, { waitUntil: "networkidle0" });
+    // networkidle0 never fires under vite (the HMR websocket stays open);
+    // the waitForFunction below is the real "game is ready" signal anyway.
+    await page.goto(`${URL_BASE}/?seed=123`, { waitUntil: "domcontentloaded" });
 
     // Wait for the entrance animation to finish and the board to unlock.
     await page.waitForFunction(() => window.__ottm3 && !window.__ottm3.isLocked(), {

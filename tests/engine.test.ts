@@ -494,6 +494,11 @@ describe("powerup fusion matrix", () => {
     ["pulse", "prism", "pulse-prism"],
     ["nova", "nova", "nova-nova"],
     ["nova", "prism", "nova-prism"],
+    ["rocketH", "meteor", "rocket-meteor"],
+    ["pulse", "meteor", "pulse-meteor"],
+    ["meteor", "nova", "meteor-nova"],
+    ["meteor", "prism", "meteor-prism"],
+    ["meteor", "meteor", "meteor-meteor"],
     ["prism", "prism", "prism-prism"],
     ["pulse", "singularity", "singularity"],
   ];
@@ -536,7 +541,7 @@ describe("powerup fusion matrix", () => {
     if (clear?.type === "clear") expect(clear.pieces.length).toBe(count);
   });
 
-  it.each(["rocketH", "pulse", "nova", "prism", "singularity"] as const)(
+  it.each(["rocketH", "pulse", "nova", "meteor", "prism", "singularity"] as const)(
     "%s + singularity wipes the board",
     (special) => {
       const clear = pairClear(special, "singularity");
@@ -582,6 +587,129 @@ describe("powerup fusion matrix", () => {
       expect(clear.pieces.length).toBe(64);
       expect(clear.effects.filter((e) => e.kind === "nova")).toHaveLength(1);
       expect(clear.effects.some((e) => e.kind === "laser" && e.r === 0)).toBe(true);
+    }
+  });
+});
+
+describe("meteor", () => {
+  it("a solid 2x3 block creates a meteor at the swapped cell", () => {
+    const game = Game.fromColors([
+      [0, 0, 0, 4],
+      [0, 2, 0, 1],
+      [2, 0, 3, 5],
+      [5, 1, 2, 3],
+    ]);
+    // Swap (2,1) up into (1,1): rows 0-1 × cols 0-2 become a solid block of 0s
+    // (two parallel 3-runs fused through 2x2 squares).
+    const steps = game.swap({ r: 2, c: 1 }, { r: 1, c: 1 });
+    const clear = clearSteps(steps)[0];
+    expect(clear?.type).toBe("clear");
+    if (clear?.type === "clear") {
+      expect(clear.pieces.length).toBe(6);
+      expect(clear.created).toHaveLength(1);
+      expect(clear.created[0]?.special).toBe("meteor");
+      expect(clear.created[0]?.r).toBe(1);
+      expect(clear.created[0]?.c).toBe(1);
+      expect(clear.created[0]?.color).toBe(0);
+    }
+    assertSettled(game);
+  });
+
+  it("an L/T intersection still creates a nova, not a meteor", () => {
+    const colors = neutralBoard(7);
+    // A vertical 3-run in column 3 (rows 1-3) plus a horizontal 3-run in
+    // row 3 (cols 3-5) sharing the corner: perpendicular lines, no square.
+    for (const [r, c] of [
+      [1, 3],
+      [2, 3],
+      [3, 3],
+      [3, 4],
+      [3, 5],
+    ] as const) {
+      const row = colors[r];
+      if (row) row[c] = 0;
+    }
+    const game = Game.fromColors(colors);
+    const steps = game.swap({ r: 3, c: 4 }, { r: 3, c: 5 });
+    const clear = clearSteps(steps)[0];
+    expect(clear?.type).toBe("clear");
+    if (clear?.type === "clear") {
+      expect(clear.created[0]?.special).toBe("nova");
+    }
+  });
+
+  it("a meteor fired alone bombards four random cells with plus-shaped blasts", () => {
+    const game = gameWithPair("meteor", "none");
+    const steps = game.swap({ r: 3, c: 3 }, { r: 3, c: 4 });
+    const clear = clearSteps(steps)[0];
+    expect(clear?.type).toBe("clear");
+    if (clear?.type === "clear") {
+      const meteor = clear.effects.find((e) => e.kind === "meteor");
+      expect(meteor?.kind).toBe("meteor");
+      if (meteor?.kind === "meteor") {
+        expect(meteor.strikes).toHaveLength(4);
+        // Strike cells are distinct and inside the board.
+        const keys = new Set(meteor.strikes.map((s) => `${s.r},${s.c}`));
+        expect(keys.size).toBe(4);
+        for (const s of meteor.strikes) {
+          expect(s.r).toBeGreaterThanOrEqual(0);
+          expect(s.r).toBeLessThan(8);
+          expect(s.c).toBeGreaterThanOrEqual(0);
+          expect(s.c).toBeLessThan(8);
+        }
+        // Every strike cell itself is cleared.
+        const cleared = new Set(clear.pieces.map((p) => `${p.r},${p.c}`));
+        for (const s of meteor.strikes) expect(cleared.has(`${s.r},${s.c}`)).toBe(true);
+      }
+      expect(clear.pieces.length).toBeGreaterThanOrEqual(5);
+    }
+    assertSettled(game);
+  });
+
+  it("meteor strikes are deterministic for a given seed", () => {
+    const strikesOf = (): string => {
+      const game = gameWithPair("meteor", "none");
+      const clear = clearSteps(game.swap({ r: 3, c: 3 }, { r: 3, c: 4 }))[0];
+      if (clear?.type !== "clear") return "";
+      const meteor = clear.effects.find((e) => e.kind === "meteor");
+      return meteor?.kind === "meteor"
+        ? meteor.strikes.map((s) => `${s.r},${s.c}`).join(";")
+        : "";
+    };
+    const first = strikesOf();
+    expect(first).not.toBe("");
+    expect(strikesOf()).toBe(first);
+  });
+
+  it("a meteor caught in another blast chains its own bombardment", () => {
+    const game = gameWithPair("pulse", "none", [{ r: 2, c: 3, special: "meteor" }]);
+    const steps = game.swap({ r: 3, c: 3 }, { r: 3, c: 4 });
+    const clear = clearSteps(steps)[0];
+    expect(clear?.type).toBe("clear");
+    if (clear?.type === "clear") {
+      expect(clear.effects.some((e) => e.kind === "pulse")).toBe(true);
+      expect(clear.effects.some((e) => e.kind === "meteor")).toBe(true);
+    }
+    assertSettled(game);
+  });
+
+  it("meteor + prism strikes every relic of the paired color", () => {
+    const clear = pairClear("meteor", "prism");
+    expect(clear?.type).toBe("clear");
+    if (clear?.type === "clear") {
+      const comboFx = clear.effects.find((e) => e.kind === "combo" && e.combo === "meteor-prism");
+      const color = comboFx?.kind === "combo" ? comboFx.color : undefined;
+      expect(color).toBeGreaterThanOrEqual(0);
+      expect(
+        clear.effects.some((e) => e.kind === "prism" && e.mode === "meteor-storm" && e.color === color),
+      ).toBe(true);
+      const meteor = clear.effects.find((e) => e.kind === "meteor");
+      if (meteor?.kind === "meteor") {
+        // One strike per relic of the target color; all of them cleared.
+        const cleared = new Set(clear.pieces.map((p) => `${p.r},${p.c}`));
+        for (const s of meteor.strikes) expect(cleared.has(`${s.r},${s.c}`)).toBe(true);
+        expect(meteor.strikes.length).toBeGreaterThan(0);
+      }
     }
   });
 });

@@ -15,6 +15,9 @@ without requiring another match.
 - **4 in a line → Rocket:** fires through a full row or column.
 - **2×2 square → Pulse:** detonates a compact 3×3 field.
 - **L/T intersection → Nova:** vaporizes its row, column, and core field.
+- **Solid 2×3 block → Meteor:** calls down a randomized orbital bombardment of
+  plus-shaped strikes, each with its own screaming re-entry trail and impact
+  explosion.
 - **Straight 5 → Prism:** erases every relic of the swapped color.
 - **Straight 6 or a 9+ relic group → Singularity:** the board has made a
   serious tactical error.
@@ -23,16 +26,30 @@ Every pair of powerups has a bespoke result. The complete matrix includes
 parallel and crossed rocket barrages, rocket + pulse three-lane crosses, rocket
 + nova five-lane crosses, prism rocket rain, doubled pulse fields, pulse + nova
 mega-blasts, prism blast fields, nova board wipes, prism cross-storms, double
-prism annihilation, and singularity pairings that wipe the board. Powerups
-caught inside another effect chain too, so one combination can ignite several
-more.
+prism annihilation, meteor lane barrages, meteor carpet bombing, meteor
+extinction events, per-color chromatic hailstorms, double-meteor impacts, and
+singularity pairings that wipe the board. Powerups caught inside another
+effect chain too, so one combination can ignite several more.
 
-## Overdrive
+## Overdrive, Fever, and stage modifiers
 
 - Cascades escalate score, pitch, combo callouts, particles, shake, and shader
   intensity instead of merely incrementing a quiet counter.
 - Clearing relics fills Hype; a full meter ignites three turns of audiovisual
   Overdrive. Beat the stage payout in 15 moves to advance on the same board.
+- A cascade of 4+ ignites **FEVER TIME**: reality hue-cycles, a curtain of
+  sparks rises from the board, and Hype charges half again as fast.
+- The biggest fusions and deepest cascades trigger **bullet time** — tweens,
+  timers, and the board's spring physics all dilate while the shader drains
+  color and drops letterbox bars.
+- Every explosion detonates a real pyrotechnic composite: core flash, fireball,
+  shockwave ring, debris that ricochets off the arena, embers, rising smoke, a
+  screen-space ripple in the shader, and a distance-delayed jiggle wave through
+  every nearby relic.
+- Each stage after the first draws a **stage modifier**: GOLD RUSH (Hype
+  charges twice as fast), DISCO INFERNO (the whole screen cycles hues), METEOR
+  WEATHER (ambient debris streaks across the arena), or HEAVY METAL (extra
+  shake, extra shrapnel).
 - Six glossy cosmic relic silhouettes remain readable under the glow, while
   rockets, pulses, novas, prisms, and singularities have distinct silhouettes
   and effects.
