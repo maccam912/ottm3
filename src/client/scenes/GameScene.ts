@@ -115,6 +115,7 @@ export class GameScene extends Phaser.Scene {
   private lastAction = 0;
 
   private autoplay = false;
+  private autoBtnLabel: Phaser.GameObjects.Text | null = null;
   private runToken = 0;
   private bestMoveFx: Phaser.GameObjects.GameObject[] = [];
 
@@ -160,7 +161,7 @@ export class GameScene extends Phaser.Scene {
     super("game");
   }
 
-  create(data: { seed?: number }): void {
+  create(data: { seed?: number; autoplay?: boolean }): void {
     const url = new URL(window.location.href);
     const urlSeed = url.searchParams.get("seed");
     const seed = data.seed ?? (urlSeed ? Number(urlSeed) : (Math.random() * 2 ** 31) | 0);
@@ -185,7 +186,8 @@ export class GameScene extends Phaser.Scene {
     this.trauma = 0;
     this.zoomKick = 0;
     this.shaderKick = 0;
-    this.autoplay = false;
+    // ZEN MODE survives a restart so the chaos never needs a human.
+    this.autoplay = data.autoplay === true;
     this.gameOver = false;
     this.runToken++;
     this.bestMoveFx = [];
@@ -220,6 +222,11 @@ export class GameScene extends Phaser.Scene {
     this.sfx.startMusic();
 
     void this.entrance();
+    // The loop idles while the entrance animation holds the board locked.
+    if (this.autoplay) {
+      this.setAutoButton();
+      void this.autoplayLoop(this.runToken);
+    }
   }
 
   override update(time: number, dt: number): void {
@@ -588,16 +595,18 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    const hint = this.neonButton(118, 1030, 176, "BEST MOVE", 0xffd83d, () => this.showBestMove());
-    const lab = this.neonButton(308, 1030, 176, "POWERUP LAB", 0xff2bd6, () => this.toggleRecipes());
-    const fx = this.neonButton(498, 1030, 176, this.reducedFx ? "FX: KIND" : "FX: MAX", 0x36f1ff, () => {
+    const hint = this.neonButton(85, 1030, 140, "BEST MOVE", 0xffd83d, () => this.showBestMove());
+    const auto = this.neonButton(224, 1030, 100, "ZEN: OFF", 0xb56cff, () => this.toggleAutoplay());
+    this.autoBtnLabel = auto.label;
+    const lab = this.neonButton(373, 1030, 160, "POWERUP LAB", 0xff2bd6, () => this.toggleRecipes());
+    const fx = this.neonButton(534, 1030, 124, this.reducedFx ? "FX: KIND" : "FX: MAX", 0x36f1ff, () => {
       this.reducedFx = !this.reducedFx;
       localStorage.setItem("ottm3.fx", this.reducedFx ? "reduced" : "max");
       this.setupShader();
       fx.label.setText(this.reducedFx ? "FX: KIND" : "FX: MAX");
       this.banner(this.reducedFx ? "MERELY RIDICULOUS" : "MAXIMUM EVERYTHING", 0x36f1ff, 38);
     });
-    const sound = this.neonButton(630, 1030, 78, this.sfx.muted ? "OFF" : "SFX", 0x55ff8a, () => {
+    const sound = this.neonButton(655, 1030, 80, this.sfx.muted ? "OFF" : "SFX", 0x55ff8a, () => {
       sound.label.setText(this.sfx.toggleMute() ? "OFF" : "SFX");
     });
 
@@ -630,7 +639,9 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
-    restart.on("pointerdown", () => this.scene.restart({ seed: (Math.random() * 2 ** 31) | 0 }));
+    restart.on("pointerdown", () =>
+      this.scene.restart({ seed: (Math.random() * 2 ** 31) | 0, autoplay: this.autoplay }),
+    );
 
     this.hudLayer.add([
       titleShadowA,
@@ -649,6 +660,7 @@ export class GameScene extends Phaser.Scene {
       this.modeText,
       footer,
       hint.container,
+      auto.container,
       lab.container,
       fx.container,
       sound.container,
@@ -867,8 +879,19 @@ export class GameScene extends Phaser.Scene {
 
   private toggleAutoplay(): void {
     this.autoplay = !this.autoplay;
-    if (this.autoplay) void this.autoplayLoop(this.runToken);
-    else this.clearBestMoveFx();
+    this.setAutoButton();
+    if (this.autoplay) {
+      this.banner("ZEN MODE • WATCH THE CHAOS", 0xb56cff, 40);
+      void this.autoplayLoop(this.runToken);
+    } else {
+      this.banner("MANUAL CONTROL RESTORED", 0xb56cff, 36);
+      this.clearBestMoveFx();
+    }
+  }
+
+  private setAutoButton(): void {
+    this.autoBtnLabel?.setText(this.autoplay ? "ZEN: ON" : "ZEN: OFF");
+    this.autoBtnLabel?.setColor(this.autoplay ? "#ffe34e" : "#ffffff");
   }
 
   private async autoplayLoop(token: number): Promise<void> {
@@ -954,7 +977,6 @@ export class GameScene extends Phaser.Scene {
 
   private showResults(): void {
     this.gameOver = true;
-    this.autoplay = false;
     this.clearBestMoveFx();
     const overlay = this.add.container(0, 0).setDepth(5000);
     const dim = this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x050009, 0.9);
@@ -1005,10 +1027,42 @@ export class GameScene extends Phaser.Scene {
         color: "#ffffff",
       })
       .setOrigin(0.5);
-    button.setInteractive({ useHandCursor: true }).on("pointerdown", () => {
-      this.scene.restart({ seed: (Math.random() * 2 ** 31) | 0 });
-    });
+    const restart = (): void => {
+      this.scene.restart({ seed: (Math.random() * 2 ** 31) | 0, autoplay: this.autoplay });
+    };
+    button.setInteractive({ useHandCursor: true }).on("pointerdown", restart);
     overlay.add([dim, panel, header, sub, stats, button, buttonText]);
+
+    // ZEN MODE never stops for a results screen: count down and re-detonate.
+    if (this.autoplay) {
+      const zen = this.add
+        .text(GAME_WIDTH / 2, 890, "", {
+          fontFamily: BODY_FONT,
+          fontStyle: "bold",
+          fontSize: "18px",
+          color: "#b56cff",
+        })
+        .setOrigin(0.5);
+      overlay.add(zen);
+      const token = this.runToken;
+      let remaining = 3;
+      const tick = (): void => {
+        if (token !== this.runToken) return;
+        if (!this.autoplay) {
+          zen.setText("");
+          return;
+        }
+        if (remaining <= 0) {
+          restart();
+          return;
+        }
+        zen.setText(`ZEN MODE RE-DETONATES IN ${remaining}…`);
+        remaining--;
+        this.time.delayedCall(1000, tick);
+      };
+      tick();
+    }
+
     overlay.setScale(0.6).setAlpha(0);
     this.tweens.add({ targets: overlay, scale: 1, alpha: 1, duration: 360, ease: "Back.easeOut" });
   }

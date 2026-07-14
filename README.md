@@ -55,6 +55,9 @@ effect chain too, so one combination can ignite several more.
   and effects.
 - Dead boards reshuffle automatically. Idle hints and an exact deterministic
   best-move button keep a run moving without hiding the decision from you.
+- **ZEN MODE** plays the exact best move forever so you can watch the chaos
+  without lifting a finger — it telegraphs each swap, survives stage
+  advances, and even re-detonates a fresh run from the results screen.
 - The deterministic engine and renderer are separate: the engine emits ordered
   swap/clear/fall/refill steps and Phaser turns those steps into spectacle.
   `?seed=123` pins a run for debugging.
